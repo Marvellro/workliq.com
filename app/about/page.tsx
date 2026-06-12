@@ -112,16 +112,16 @@ export default function About() {
 
           {/* REPLACE THIS SECTION with your real name, photo, bio, and LinkedIn */}
           <div style={{ display: "flex", alignItems: "flex-start", gap: 16, marginBottom: 20 }}>
-            <div style={{ width: 56, height: 56, borderRadius: "50%", background: "#1A56DB", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, fontWeight: 500, color: "#fff", flexShrink: 0 }}>
+            <div style={{ width: 56, height: 56, borderRadius: "50%", background: "#1A56DB", display: "flex", alignItems: "center", justifyContent: "center",fontSize: 14, fontWeight: 500, color: "#fff", flexShrink: 0 }}>
               Y
             </div>
             <div>
-              <div style={{ fontSize: 15, fontWeight: 500, color: "#0D0F1A", marginBottom: 2 }}>Your Name</div>
+              <div style={{ fontSize: 15, fontWeight: 500, color: "#0D0F1A", marginBottom: 2 }}>Marvellous Junior Okorie</div>
               <div style={{ fontSize: 12, color: "#1A56DB", marginBottom: 8 }}>Founder & CEO</div>
               <div style={{ fontSize: 13, color: "#6B7280", lineHeight: 1.6, marginBottom: 8 }}>
-                Replace this with your real bio — 2–3 sentences about your background, what you did before Workliq, and why you started the company. Investors and customers read this. Make it personal and specific.
+                Marvellous spent years in sales and marketing watching operations teams lose hours every week to manual, repetitive work — updating CRMs, routing tickets, chasing data across tools. Based in Stockholm, Sweden, he founded Workliq in 2026 to give every business the automation power that only well-funded engineering teams used to have. His background in sales means Workliq is built for the people who actually run businesses, not just the people who build software. — 2–3 sentences about your background, what you did before Workliq, and why you started the company. Investors and customers read this. Make it personal and specific.
               </div>
-              <a href="https://linkedin.com" target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "#1A56DB", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}>
+              <a href="https://linkedin.com/in/marvellous-junior-okorie" target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "#1A56DB", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}>
                 LinkedIn →
               </a>
             </div>
