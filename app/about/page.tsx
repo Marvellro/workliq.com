@@ -113,7 +113,7 @@ export default function About() {
           {/* REPLACE THIS SECTION with your real name, photo, bio, and LinkedIn */}
           <div style={{ display: "flex", alignItems: "flex-start", gap: 16, marginBottom: 20 }}>
             <div style={{ width: 56, height: 56, borderRadius: "50%", background: "#1A56DB", display: "flex", alignItems: "center", justifyContent: "center",fontSize: 14, fontWeight: 500, color: "#fff", flexShrink: 0 }}>
-              Y
+              MJ
             </div>
             <div>
               <div style={{ fontSize: 15, fontWeight: 500, color: "#0D0F1A", marginBottom: 2 }}>Marvellous Junior Okorie</div>
