@@ -123,7 +123,7 @@ export default function About() {
               <div style={{ fontSize: 13, color: "#6B7280", lineHeight: 1.65, marginBottom: 10 }}>
                 Marvellous spent years in sales and marketing watching operations teams lose hours every week to manual, repetitive work — updating CRMs, routing tickets, chasing data across tools. Based in Stockholm, Sweden, he founded Workliq in 2026 to give every business the automation power that only well-funded engineering teams used to have.
               </div>
-              <a href="www.linkedin.com/in/marvellous-junior-okorie-a61479210" target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "#1A56DB", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4, minHeight: 44, paddingTop: 4 }}>
+              <a href="https://www.linkedin.com/in/marvellous-junior-okorie-a61479210" target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "#1A56DB", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4, minHeight: 44, paddingTop: 4 }}>
                 LinkedIn →
               </a>
             </div>
