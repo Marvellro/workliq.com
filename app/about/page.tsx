@@ -21,18 +21,22 @@ export default function About() {
     <main style={{ maxWidth: 720, margin: "0 auto", fontFamily: "system-ui, -apple-system, sans-serif", padding: "0 1.5rem" }}>
 
       {/* NAV */}
-      <nav style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1.2rem 0 0" }}>
+      <nav style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1.2rem 0 0", flexWrap: "wrap", gap: 10 }}>
         <a href="/" style={{ display: "flex", alignItems: "center", gap: 8, textDecoration: "none" }}>
-          <div style={{ width: 28, height: 28, background: "#1A56DB", borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 500, color: "#fff" }}>W</div>
-          <span style={{ fontSize: 15, fontWeight: 500, color: "#0D0F1A", letterSpacing: "-0.02em" }}>Workliq</span>
+          <div style={{ width: 28, height: 28, background: "#1A56DB", borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 600, color: "#fff" }}>W</div>
+          <span style={{ fontSize: 15, fontWeight: 600, color: "#0D0F1A", letterSpacing: "-0.025em" }}>Workliq</span>
         </a>
-        <a href="/" style={{ fontSize: 13, color: "#6B7280", textDecoration: "none" }}>← Back to home</a>
+        <div style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
+          <a href="/pricing" style={{ fontSize: 13, color: "#6B7280", textDecoration: "none", minHeight: 44, display: "inline-flex", alignItems: "center" }}>Pricing</a>
+          <a href="/blog" style={{ fontSize: 13, color: "#6B7280", textDecoration: "none", minHeight: 44, display: "inline-flex", alignItems: "center" }}>Blog</a>
+          <a href="/" style={{ fontSize: 13, color: "#6B7280", textDecoration: "none", minHeight: 44, display: "inline-flex", alignItems: "center" }}>← Home</a>
+        </div>
       </nav>
 
       {/* HERO */}
       <div style={{ padding: "3.5rem 0 2.5rem", borderBottom: "0.5px solid #E5E7EB", marginBottom: "2.5rem" }}>
-        <div style={{ fontSize: 11, fontFamily: "monospace", color: "#1A56DB", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 14 }}>About Workliq</div>
-        <h1 style={{ fontSize: "clamp(28px, 5vw, 40px)", fontWeight: 500, color: "#0D0F1A", letterSpacing: "-0.025em", lineHeight: 1.1, marginBottom: 16 }}>
+        <div style={{ fontSize: 11, fontFamily: "monospace", color: "#1A56DB", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 14, fontWeight: 600 }}>About Workliq</div>
+        <h1 style={{ fontSize: "clamp(26px, 5vw, 40px)", fontWeight: 500, color: "#0D0F1A", letterSpacing: "-0.025em", lineHeight: 1.1, marginBottom: 16 }}>
           We&apos;re making AI automation<br />
           <span style={{ color: "#1A56DB", fontStyle: "italic" }}>flow through every business.</span>
         </h1>
@@ -43,17 +47,17 @@ export default function About() {
 
       {/* MISSION */}
       <div style={{ marginBottom: "3rem" }}>
-        <div style={{ fontSize: 11, fontWeight: 500, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 14 }}>Our mission</div>
+        <div style={{ fontSize: 10, fontWeight: 600, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 14 }}>Our mission</div>
         <div style={{ background: "#F0F6FF", border: "0.5px solid #BFDBFE", borderLeft: "4px solid #1A56DB", borderRadius: 10, padding: "20px 24px" }}>
-          <p style={{ fontSize: 18, fontWeight: 500, color: "#0D0F1A", lineHeight: 1.5, margin: 0 }}>
-            "To make AI automation as easy to use as sending an email — so that every business can reclaim the hours lost to manual, repetitive work."
+          <p style={{ fontSize: 17, fontWeight: 500, color: "#0D0F1A", lineHeight: 1.55, margin: 0 }}>
+            &ldquo;To make AI automation as easy to use as sending an email — so that every business can reclaim the hours lost to manual, repetitive work.&rdquo;
           </p>
         </div>
       </div>
 
       {/* STORY */}
       <div style={{ marginBottom: "3rem" }}>
-        <div style={{ fontSize: 11, fontWeight: 500, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 14 }}>The story</div>
+        <div style={{ fontSize: 10, fontWeight: 600, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 14 }}>The story</div>
         <div style={{ fontSize: 15, color: "#374151", lineHeight: 1.85 }}>
           <p style={{ marginBottom: 16 }}>
             Workliq started from a simple observation: every ops team we talked to was spending 10–20 hours a week doing the same things — updating CRM records, routing support tickets, generating reports, syncing data between tools. Work that felt important in the moment but added zero real value.
@@ -72,13 +76,13 @@ export default function About() {
 
       {/* VALUES */}
       <div style={{ marginBottom: "3rem" }}>
-        <div style={{ fontSize: 11, fontWeight: 500, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 14 }}>What we believe</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <div style={{ fontSize: 10, fontWeight: 600, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 14 }}>What we believe</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }} className="values-grid">
           {values.map((v, i) => (
-            <div key={i} style={{ background: "#fff", border: "0.5px solid #E5E7EB", borderRadius: 12, padding: "14px 16px" }}>
+            <div key={i} style={{ background: "#fff", border: "0.5px solid #E5E7EB", borderRadius: 12, padding: "16px" }}>
               <div style={{ fontSize: 22, marginBottom: 8 }}>{v.icon}</div>
-              <div style={{ fontSize: 13, fontWeight: 500, color: "#0D0F1A", marginBottom: 6 }}>{v.title}</div>
-              <div style={{ fontSize: 12, color: "#6B7280", lineHeight: 1.55 }}>{v.desc}</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#0D0F1A", marginBottom: 6, letterSpacing: "-0.01em" }}>{v.title}</div>
+              <div style={{ fontSize: 12, color: "#6B7280", lineHeight: 1.6 }}>{v.desc}</div>
             </div>
           ))}
         </div>
@@ -86,7 +90,7 @@ export default function About() {
 
       {/* MILESTONES */}
       <div style={{ marginBottom: "3rem" }}>
-        <div style={{ fontSize: 11, fontWeight: 500, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 14 }}>Timeline</div>
+        <div style={{ fontSize: 10, fontWeight: 600, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 14 }}>Timeline</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
           {milestones.map((m, i) => (
             <div key={i} style={{ display: "flex", gap: 16, paddingBottom: 14, position: "relative" }}>
@@ -97,7 +101,7 @@ export default function About() {
                 )}
               </div>
               <div style={{ paddingBottom: 4 }}>
-                <div style={{ fontSize: 11, fontFamily: "monospace", color: "#1A56DB", marginBottom: 2 }}>{m.date}</div>
+                <div style={{ fontSize: 11, fontFamily: "monospace", color: "#1A56DB", marginBottom: 2, fontWeight: 600 }}>{m.date}</div>
                 <div style={{ fontSize: 14, color: "#374151", fontWeight: 500 }}>{m.event}</div>
               </div>
             </div>
@@ -107,21 +111,19 @@ export default function About() {
 
       {/* TEAM */}
       <div style={{ marginBottom: "3rem" }}>
-        <div style={{ fontSize: 11, fontWeight: 500, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 14 }}>Founding team</div>
+        <div style={{ fontSize: 10, fontWeight: 600, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 14 }}>Founding team</div>
         <div style={{ background: "#F9FAFB", border: "0.5px solid #E5E7EB", borderRadius: 12, padding: "20px" }}>
-
-          {/* REPLACE THIS SECTION with your real name, photo, bio, and LinkedIn */}
-          <div style={{ display: "flex", alignItems: "flex-start", gap: 16, marginBottom: 20 }}>
-            <div style={{ width: 56, height: 56, borderRadius: "50%", background: "#1A56DB", display: "flex", alignItems: "center", justifyContent: "center",fontSize: 14, fontWeight: 500, color: "#fff", flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 16, marginBottom: 20 }} className="founder-card">
+            <div style={{ width: 56, height: 56, borderRadius: "50%", background: "#1A56DB", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 600, color: "#fff", flexShrink: 0 }}>
               MJ
             </div>
             <div>
-              <div style={{ fontSize: 15, fontWeight: 500, color: "#0D0F1A", marginBottom: 2 }}>Marvellous Junior Okorie</div>
-              <div style={{ fontSize: 12, color: "#1A56DB", marginBottom: 8 }}>Founder & CEO</div>
-              <div style={{ fontSize: 13, color: "#6B7280", lineHeight: 1.6, marginBottom: 8 }}>
-                Marvellous spent years in sales and marketing watching operations teams lose hours every week to manual, repetitive work — updating CRMs, routing tickets, chasing data across tools. Based in Stockholm, Sweden, he founded Workliq in 2026 to give every business the automation power that only well-funded engineering teams used to have. His background in sales means Workliq is built for the people who actually run businesses, not just the people who build software. 
+              <div style={{ fontSize: 15, fontWeight: 600, color: "#0D0F1A", marginBottom: 2, letterSpacing: "-0.01em" }}>Marvellous Junior Okorie</div>
+              <div style={{ fontSize: 12, color: "#1A56DB", marginBottom: 8, fontWeight: 500 }}>Founder &amp; CEO</div>
+              <div style={{ fontSize: 13, color: "#6B7280", lineHeight: 1.65, marginBottom: 10 }}>
+                Marvellous spent years in sales and marketing watching operations teams lose hours every week to manual, repetitive work — updating CRMs, routing tickets, chasing data across tools. Based in Stockholm, Sweden, he founded Workliq in 2026 to give every business the automation power that only well-funded engineering teams used to have.
               </div>
-              <a href="https://linkedin.com/in/marvellous-junior-okorie" target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "#1A56DB", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}>
+              <a href="https://linkedin.com/in/marvellous-junior-okorie" target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "#1A56DB", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4, minHeight: 44, paddingTop: 4 }}>
                 LinkedIn →
               </a>
             </div>
@@ -135,8 +137,8 @@ export default function About() {
 
       {/* STATS */}
       <div style={{ marginBottom: "3rem" }}>
-        <div style={{ fontSize: 11, fontWeight: 500, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 14 }}>By the numbers</div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", gap: 10 }}>
+        <div style={{ fontSize: 10, fontWeight: 600, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 14 }}>By the numbers</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", gap: 10 }} className="about-stats-grid">
           {[
             ["214", "integrations"],
             ["48", "workflow templates"],
@@ -145,8 +147,8 @@ export default function About() {
             ["47k+", "automation runs/mo"],
             ["4 days", "avg time to go live"],
           ].map(([v, l], i) => (
-            <div key={i} style={{ background: "#fff", border: "0.5px solid #E5E7EB", borderRadius: 10, padding: "12px 14px", textAlign: "center" }}>
-              <div style={{ fontSize: 22, fontWeight: 500, color: "#0D0F1A", marginBottom: 3 }}>{v}</div>
+            <div key={i} style={{ background: "#fff", border: "0.5px solid #E5E7EB", borderRadius: 10, padding: "14px", textAlign: "center" }}>
+              <div style={{ fontSize: 22, fontWeight: 600, color: "#0D0F1A", marginBottom: 3, letterSpacing: "-0.02em" }}>{v}</div>
               <div style={{ fontSize: 11, color: "#9CA3AF" }}>{l}</div>
             </div>
           ))}
@@ -154,27 +156,40 @@ export default function About() {
       </div>
 
       {/* CTA */}
-      <div style={{ background: "#0D0F1A", borderRadius: 16, padding: "28px 32px", marginBottom: "3rem", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20, flexWrap: "wrap" }}>
+      <div style={{ background: "#0D0F1A", borderRadius: 16, padding: "28px 28px", marginBottom: "3rem", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20, flexWrap: "wrap" }}>
         <div>
-          <div style={{ fontSize: 18, fontWeight: 500, color: "#F0F2EE", marginBottom: 6 }}>Want to work together?</div>
-          <div style={{ fontSize: 13, color: "#6B7280", lineHeight: 1.5 }}>We&apos;re always open to conversations with customers, investors, and partners.</div>
+          <div style={{ fontSize: 18, fontWeight: 500, color: "#F0F2EE", marginBottom: 6, letterSpacing: "-0.01em" }}>Want to work together?</div>
+          <div style={{ fontSize: 13, color: "#6B7280", lineHeight: 1.55 }}>We&apos;re always open to conversations with customers, investors, and partners.</div>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <a href="mailto:hello@workliq.com" style={{ fontSize: 13, padding: "9px 18px", borderRadius: 8, background: "#1A56DB", color: "#fff", textDecoration: "none", fontWeight: 500, whiteSpace: "nowrap" }}>
+          <a href="mailto:hello@workliq.com" style={{ fontSize: 13, padding: "11px 20px", borderRadius: 9, background: "#1A56DB", color: "#fff", textDecoration: "none", fontWeight: 600, whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", minHeight: 44 }}>
             Get in touch
           </a>
-          <a href="/pricing" style={{ fontSize: 13, padding: "9px 18px", borderRadius: 8, background: "transparent", color: "#C8F135", border: "0.5px solid #C8F135", textDecoration: "none", fontWeight: 500, whiteSpace: "nowrap" }}>
+          <a href="/pricing" style={{ fontSize: 13, padding: "11px 20px", borderRadius: 9, background: "transparent", color: "#C8F135", border: "0.5px solid #C8F135", textDecoration: "none", fontWeight: 600, whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", minHeight: 44 }}>
             See pricing
           </a>
         </div>
       </div>
 
       {/* FOOTER */}
-      <footer style={{ textAlign: "center", padding: "1.5rem 0", borderTop: "0.5px solid #E5E7EB", fontSize: 12, color: "#9CA3AF", fontFamily: "monospace" }}>
+      <footer style={{ textAlign: "center", padding: "1.5rem 0 2rem", borderTop: "0.5px solid #E5E7EB", fontSize: 12, color: "#9CA3AF", fontFamily: "monospace" }}>
         © 2026 Workliq Inc. · Stockholm, Sweden ·{" "}
+        <a href="/pricing" style={{ color: "#9CA3AF" }}>Pricing</a> ·{" "}
+        <a href="/blog" style={{ color: "#9CA3AF" }}>Blog</a> ·{" "}
         <a href="/terms" style={{ color: "#9CA3AF" }}>Terms</a> ·{" "}
         <a href="/privacy" style={{ color: "#9CA3AF" }}>Privacy</a>
       </footer>
+
+      <style>{`
+        @media (max-width: 480px) {
+          .values-grid      { grid-template-columns: 1fr !important; }
+          .about-stats-grid { grid-template-columns: 1fr 1fr !important; }
+          .founder-card     { flex-direction: column !important; align-items: flex-start !important; }
+        }
+        @media (max-width: 375px) {
+          .about-stats-grid { grid-template-columns: 1fr !important; }
+        }
+      `}</style>
     </main>
   );
 }
