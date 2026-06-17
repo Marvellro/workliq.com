@@ -36,7 +36,7 @@ export default function LoginPage() {
       type: 'email',
     })
     if (error) setError(error.message)
-    else window.location.href = '/admin/waitlist'
+    else {   document.cookie = `admin-email=${email}; path=/; max-age=86400`   window.location.href = '/admin/waitlist' }
     setLoading(false)
   }
 
