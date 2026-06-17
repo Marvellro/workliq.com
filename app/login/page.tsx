@@ -76,11 +76,11 @@ export default function LoginPage() {
             <input
               type="text"
               inputMode="numeric"
-              placeholder="123456"
+              placeholder="12345678"
               value={otp}
               onChange={e => setOtp(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleVerifyCode()}
-              maxLength={6}
+              maxLength={8}
               className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm tracking-widest text-center focus:outline-none focus:ring-2 focus:ring-gray-900"
             />
             {error && <p className="text-sm text-red-600">{error}</p>}
