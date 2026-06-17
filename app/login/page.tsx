@@ -10,21 +10,33 @@ const supabase = createClient(
 
 export default function LoginPage() {
   const [email, setEmail]     = useState('')
+  const [otp, setOtp]         = useState('')
   const [sent, setSent]       = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError]     = useState('')
 
-  async function handleLogin() {
+  async function handleSendCode() {
     setLoading(true)
     setError('')
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
-      },
+      options: { shouldCreateUser: false },
     })
     if (error) setError(error.message)
     else setSent(true)
+    setLoading(false)
+  }
+
+  async function handleVerifyCode() {
+    setLoading(true)
+    setError('')
+    const { error } = await supabase.auth.verifyOtp({
+      email,
+      token: otp,
+      type: 'email',
+    })
+    if (error) setError(error.message)
+    else window.location.href = '/admin/waitlist'
     setLoading(false)
   }
 
@@ -34,33 +46,56 @@ export default function LoginPage() {
         <div className="mb-6">
           <h1 className="text-xl font-bold text-gray-900">Admin login</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Enter your admin email to receive a magic link.
+            {sent
+              ? 'Enter the 6-digit code we sent to your email.'
+              : 'Enter your admin email to receive a code.'}
           </p>
         </div>
 
-        {sent ? (
-          <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-3 text-sm text-emerald-800">
-            ✓ Magic link sent! Check your email at <strong>{email}</strong> and click the link to log in.
-          </div>
-        ) : (
+        {!sent ? (
           <div className="space-y-4">
             <input
               type="email"
               placeholder="your@email.com"
               value={email}
               onChange={e => setEmail(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleLogin()}
+              onKeyDown={e => e.key === 'Enter' && handleSendCode()}
               className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
             />
-            {error && (
-              <p className="text-sm text-red-600">{error}</p>
-            )}
+            {error && <p className="text-sm text-red-600">{error}</p>}
             <button
-              onClick={handleLogin}
+              onClick={handleSendCode}
               disabled={loading || !email}
               className="w-full py-2.5 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-700 disabled:opacity-50 transition"
             >
-              {loading ? 'Sending…' : 'Send magic link'}
+              {loading ? 'Sending…' : 'Send code'}
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <input
+              type="text"
+              inputMode="numeric"
+              placeholder="123456"
+              value={otp}
+              onChange={e => setOtp(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleVerifyCode()}
+              maxLength={6}
+              className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm tracking-widest text-center focus:outline-none focus:ring-2 focus:ring-gray-900"
+            />
+            {error && <p className="text-sm text-red-600">{error}</p>}
+            <button
+              onClick={handleVerifyCode}
+              disabled={loading || otp.length < 6}
+              className="w-full py-2.5 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-700 disabled:opacity-50 transition"
+            >
+              {loading ? 'Verifying…' : 'Verify & sign in'}
+            </button>
+            <button
+              onClick={() => { setSent(false); setOtp(''); setError('') }}
+              className="w-full text-xs text-gray-400 hover:text-gray-600"
+            >
+              Use a different email
             </button>
           </div>
         )}
