@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 
 const ADMIN_EMAILS = [
-  'marvellosjunioro@gmail.com',
+  'marvellousjunioro@gmail.com',
 ]
 
 export async function middleware(request: NextRequest) {
