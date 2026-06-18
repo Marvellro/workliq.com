@@ -28,17 +28,18 @@ export default function LoginPage() {
   }
 
   async function handleVerifyCode() {
-    setLoading(true)
-    setError('')
-    const { error } = await supabase.auth.verifyOtp({
-      email,
-      token: otp,
-      type: 'email',
-    })
-    if (error) setError(error.message)
-    else { document.cookie = `admin-email=${email}; path=/; max-age=86400`; window.location.href = '/admin/waitlist' }
-    setLoading(false)
-  }
+  setLoading(true)
+  setError('')
+  const res = await fetch('/api/auth/verify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, otp }),
+  })
+  const data = await res.json()
+  if (!res.ok) setError(data.error || 'Verification failed')
+  else window.location.href = '/admin/waitlist'
+  setLoading(false)
+}
 
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
