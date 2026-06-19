@@ -2,11 +2,15 @@ import { NextResponse } from "next/server";
 import { Resend } from "resend";
 import { createClient } from "@supabase/supabase-js";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+function getResend() {
+  return new Resend(process.env.RESEND_API_KEY);
+}
+function getSupabase() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+}
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
@@ -15,6 +19,7 @@ export async function GET(req: Request) {
 
   if (!token) return NextResponse.redirect(`${appUrl}/?error=invalid`);
 
+  const supabase = getSupabase();
   const { data: entry, error } = await supabase
     .from("waitlist")
     .select("*")
@@ -29,7 +34,7 @@ export async function GET(req: Request) {
     .update({ confirmed: true, confirmed_at: new Date().toISOString() })
     .eq("token", token);
 
-  await resend.emails.send({
+  await getResend().emails.send({
     from: "Marvellous at Workliq <hello@workliq.com>",
     to: entry.email,
     subject: "You're on the Workliq waitlist 🎉",

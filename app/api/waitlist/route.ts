@@ -2,11 +2,15 @@ import { NextResponse } from "next/server";
 import { Resend } from "resend";
 import { createClient } from "@supabase/supabase-js";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+function getResend() {
+  return new Resend(process.env.RESEND_API_KEY);
+}
+function getSupabase() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+}
 
 export async function POST(req: Request) {
   try {
@@ -21,7 +25,7 @@ export async function POST(req: Request) {
 
     const token = crypto.randomUUID();
 
-    const { error: dbError } = await supabase
+    const { error: dbError } = await getSupabase()
       .from("waitlist")
       .upsert({ name, email, role, token, confirmed: false, created_at: new Date().toISOString() });
 
@@ -32,7 +36,7 @@ export async function POST(req: Request) {
 
     const confirmUrl = `${process.env.NEXT_PUBLIC_APP_URL}/api/confirm?token=${token}`;
 
-    await resend.emails.send({
+    await getResend().emails.send({
       from: "Marvellous at Workliq <hello@workliq.com>",
       to: email,
       subject: "Confirm your spot on the Workliq waitlist",
