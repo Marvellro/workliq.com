@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+function getSupabase() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
+}
 
 export async function POST(req: Request) {
   const { email, otp } = await req.json();
@@ -12,7 +14,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Missing email or code" }, { status: 400 });
   }
 
-  const { error } = await supabase.auth.verifyOtp({ email, token: otp, type: "email" });
+  const { error } = await getSupabase().auth.verifyOtp({ email, token: otp, type: "email" });
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 401 });
   }

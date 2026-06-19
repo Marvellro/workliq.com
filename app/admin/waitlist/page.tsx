@@ -1,12 +1,16 @@
 'use client'
 
+export const dynamic = 'force-dynamic'
+
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@supabase/supabase-js'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
+function getSupabase() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  )
+}
 
 type WaitlistStatus = 'pending' | 'invited' | 'rejected'
 
@@ -43,7 +47,7 @@ export default function AdminWaitlistPage() {
 
   const fetchEntries = useCallback(async () => {
     setLoading(true)
-    const { data, error } = await supabase
+    const { data, error } = await getSupabase()
       .from('waitlist')
       .select('*')
       .order('created_at', { ascending: false })
@@ -80,7 +84,7 @@ export default function AdminWaitlistPage() {
   async function rejectUser(entry: WaitlistEntry) {
     if (!confirm(`Reject ${entry.name}?`)) return
     setBusy(entry.id)
-    const { error } = await supabase
+    const { error } = await getSupabase()
       .from('waitlist')
       .update({ status: 'rejected', rejected_at: new Date().toISOString() })
       .eq('id', entry.id)
@@ -92,7 +96,7 @@ export default function AdminWaitlistPage() {
   async function removeUser(entry: WaitlistEntry) {
     if (!confirm(`Permanently delete ${entry.name}?`)) return
     setBusy(entry.id)
-    const { error } = await supabase.from('waitlist').delete().eq('id', entry.id)
+    const { error } = await getSupabase().from('waitlist').delete().eq('id', entry.id)
     if (error) showToast(error.message, false)
     else { showToast(`${entry.name} removed`); await fetchEntries() }
     setBusy(null)
