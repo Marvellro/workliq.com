@@ -181,16 +181,16 @@ export default function Home() {
       <section style={{ padding: "4rem 0 2rem" }}>
         <div style={{ fontSize: 11, color: "#1A56DB", fontFamily: "monospace", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: "1.4rem", display: "flex", alignItems: "center", gap: 8, animation: "fadeInUp 0.5s ease both" }}>
           <span style={{ display: "inline-block", width: 20, height: 1.5, background: "#1A56DB" }} />
-          AI workflow automation
+          CRM hygiene, automated
         </div>
 
         <h1 style={{ fontSize: "clamp(34px, 7.5vw, 56px)", fontWeight: 500, lineHeight: 1.06, letterSpacing: "-0.03em", marginBottom: "1.3rem", color: "#0D0F1A", animation: "fadeInUp 0.6s ease 0.1s both" }}>
-          Your workflows,<br />
-          <em style={{ fontStyle: "italic", color: "#1A56DB" }}>finally liquid.</em>
+          Your CRM,<br />
+          <em style={{ fontStyle: "italic", color: "#1A56DB" }}>finally clean.</em>
         </h1>
 
         <p style={{ fontSize: 16, color: "#6B7280", lineHeight: 1.7, maxWidth: 500, marginBottom: "2rem", animation: "fadeInUp 0.6s ease 0.2s both" }}>
-          Workliq connects your tools and replaces manual, repetitive work with AI agents that run 24/7 — no engineers, no Zapier workarounds, no broken automations.
+          Workliq keeps HubSpot, Slack, and Notion in sync — automating follow-ups, catching stale deals, and handling handoffs between sales and ops, so your CRM data and reporting are something you can finally trust.
         </p>
 
         {/* ── WAITLIST FORM ── */}
