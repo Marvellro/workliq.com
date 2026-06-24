@@ -204,6 +204,9 @@ async function createNotionRow(
 export async function GET(req: Request) {
   // Verify the Vercel cron secret before doing any work
   const authHeader = req.headers.get('authorization')
+console.log('[debug] CRON_SECRET set:', !!CRON_SECRET, 'CRON_SECRET length:', CRON_SECRET?.length)
+console.log('[debug] authHeader length:', authHeader?.length)
+console.log('[debug] authHeader starts with Bearer:', authHeader?.startsWith('Bearer '))
   if (!CRON_SECRET || authHeader !== `Bearer ${CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
