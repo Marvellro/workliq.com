@@ -27,7 +27,7 @@ type HubSpotDeal = {
     dealname: string | null
     dealstage: string | null
     hubspot_owner_id: string | null
-    hs_last_activity_date: string | null  // Unix ms as a string, or null
+    notes_last_updated: string | null  // ISO 8601 datetime string, or null
   }
 }
 
@@ -71,7 +71,7 @@ async function fetchAllDeals(accessToken: string): Promise<HubSpotDeal[]> {
 
   do {
     const url = new URL('https://api.hubapi.com/crm/v3/objects/deals')
-    url.searchParams.set('properties', 'dealname,dealstage,hubspot_owner_id,hs_last_activity_date')
+    url.searchParams.set('properties', 'dealname,dealstage,hubspot_owner_id,notes_last_updated')
     url.searchParams.set('limit', '100')
     if (after) url.searchParams.set('after', after)
 
@@ -293,8 +293,9 @@ export async function GET(req: Request) {
 
     // ── Step 3: Evaluate each deal ───────────────────────────────────────────
     for (const deal of deals) {
-      const lastActivityMs = deal.properties.hs_last_activity_date
-        ? parseInt(deal.properties.hs_last_activity_date, 10)
+        ? parseInt(deal.properties.notes_last_updated
+  : nullconst lastActivityMs = deal.properties.hs_last_activity_date
+        ? new Date(deal.properties.notes_last_updated).getTime()
         : null
 
       // If HubSpot has no activity date for this deal we can't compute staleness
