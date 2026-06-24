@@ -293,10 +293,12 @@ export async function GET(req: Request) {
 
     // ── Step 3: Evaluate each deal ───────────────────────────────────────────
     for (const deal of deals) {
-        ? parseInt(deal.properties.notes_last_updated
-  : nullconst lastActivityMs = deal.properties.hs_last_activity_date
+        const lastActivityMs = deal.properties.notes_last_updated
         ? new Date(deal.properties.notes_last_updated).getTime()
         : null
+  
+        
+        
 
       // If HubSpot has no activity date for this deal we can't compute staleness
       // — skip rather than treating it as infinitely stale.
