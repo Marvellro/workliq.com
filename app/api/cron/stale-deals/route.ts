@@ -305,6 +305,7 @@ export async function GET(req: Request) {
       if (lastActivityMs === null || isNaN(lastActivityMs)) continue
 
       const daysStale = Math.floor((Date.now() - lastActivityMs) / MS_PER_DAY)
+      console.log(`[stale-deals] deal ${deal.id} "${deal.properties.dealname}": notes_last_updated=${deal.properties.notes_last_updated} daysStale=${daysStale} threshold=${threshold}`)
       if (daysStale < threshold) continue
 
       const ownerName = deal.properties.hubspot_owner_id
