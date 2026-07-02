@@ -3,7 +3,7 @@ import { randomBytes } from 'crypto'
 import { getCustomerSession } from '@/lib/session'
 
 const HUBSPOT_CLIENT_ID = '399fbd57-9bd1-4d3a-926a-31f18232704f'
-const HUBSPOT_REDIRECT_URI = 'https://workliq.com/api/auth/hubspot/callback'
+const HUBSPOT_REDIRECT_URI = https://www.workliq.com/api/auth/hubspot/callback'
 const HUBSPOT_SCOPE = 'oauth crm.objects.deals.read'
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://workliq.com'
 
