@@ -11,6 +11,8 @@ type HubSpotTokenResponse = {
   refresh_token: string
   expires_in: number   // seconds until access_token expires
   token_type: string
+  hub_id: number        // portal ID — now included directly in the 2026-03 token response
+  scopes: string[]
 }
 
 function getSupabaseAdmin() {
@@ -66,9 +68,12 @@ export async function GET(req: Request) {
   }
 
   // ── Step 1: Exchange authorization code for tokens ─────────────────────────
+  // Uses the 2026-03 date-based OAuth endpoint (replaces the deprecated
+  // /oauth/v1/token endpoint). hub_id now comes back directly in this
+  // response, so no separate lookup call is needed afterward.
   let tokenData: HubSpotTokenResponse
   try {
-    const tokenRes = await fetch('https://api.hubapi.com/oauth/v1/token', {
+    const tokenRes = await fetch('https://api.hubapi.com/oauth/2026-03/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
@@ -92,32 +97,13 @@ export async function GET(req: Request) {
     return NextResponse.redirect(`${APP_URL}/dashboard?error=hubspot_token_failed`)
   }
 
-  // ── Step 2: Fetch the hub_id (portal ID) so we can show "Connected to portal
-  //            XXXXXXX" confirmation on the dashboard ─────────────────────────
-  let hubId: string
-  try {
-    const accessInfoRes = await fetch(
-      `https://api.hubapi.com/oauth/v1/access-tokens/${tokenData.access_token}`
-    )
-
-    if (!accessInfoRes.ok) {
-      const errText = await accessInfoRes.text()
-      console.error('HubSpot access token info failed:', accessInfoRes.status, errText)
-      return NextResponse.redirect(`${APP_URL}/dashboard?error=hubspot_info_failed`)
-    }
-
-    const accessInfo = await accessInfoRes.json()
-    hubId = String(accessInfo.hub_id)
-  } catch (err) {
-    console.error('HubSpot access token info network error:', err)
-    return NextResponse.redirect(`${APP_URL}/dashboard?error=hubspot_info_failed`)
-  }
+  const hubId = String(tokenData.hub_id)
 
   // expires_in is seconds from now; store as an absolute UTC timestamp so the
   // refresh helper can compare directly against Date.now()
   const expiresAt = new Date(Date.now() + tokenData.expires_in * 1000).toISOString()
 
-  // ── Step 3: Persist the connection ────────────────────────────────────────
+  // ── Step 2: Persist the connection ────────────────────────────────────────
   // Upsert on customer_id so reconnecting (e.g. the customer revoked and
   // re-installs) replaces the old tokens rather than duplicating the row.
   const { error: dbError } = await getSupabaseAdmin()
