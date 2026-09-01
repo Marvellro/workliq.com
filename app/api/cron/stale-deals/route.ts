@@ -222,7 +222,8 @@ export async function GET(req: Request) {
       stale_threshold_days,
       hubspot_connections ( hub_id ),
       slack_connections ( webhook_url ),
-      notion_connections ( access_token, database_id )
+      notion_connections ( access_token, database_id ),
+      workflows ( trigger_type, enabled )
     `)
     // Only process customers who have actually connected HubSpot — no point
     // fetching deals if we can't authenticate against their portal.
@@ -262,6 +263,22 @@ export async function GET(req: Request) {
       // Belt-and-suspenders: the outer query filters on .not('hubspot_connections', 'is', null)
       // but the join can still return null if the row was deleted between queries.
       console.warn(`[stale-deals] customer ${customerId}: no HubSpot connection after join — skipping`)
+      continue
+    }
+
+    // A customer who has built their own "deal goes stale" workflow (see
+    // lib/workflow-engine.ts) is opting into that alert instead of this
+    // built-in one. Without this check both crons would independently detect
+    // the same stale deal and post two separate, differently-formatted
+    // alerts to the same Slack channel / Notion database. Exactly one system
+    // should own staleness alerts per customer.
+    const hasActiveStaleWorkflow = (customer.workflows ?? []).some(
+      (w) => w.trigger_type === 'deal_stale' && w.enabled
+    )
+    if (hasActiveStaleWorkflow) {
+      console.log(
+        `[stale-deals] customer ${customerId}: has an active deal_stale workflow — skipping built-in alert to avoid duplicate notifications`
+      )
       continue
     }
 

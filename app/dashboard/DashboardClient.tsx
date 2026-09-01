@@ -60,6 +60,9 @@ export default function DashboardClient({ email, hubspot, slack, notion, flash }
           <span style={{ fontSize: 15, fontWeight: 600, color: '#0D0F1A', letterSpacing: '-0.025em' }}>Workliq</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <a href="/dashboard/workflows" style={{ fontSize: 13, color: '#374151', textDecoration: 'none', border: '1px solid #E5E7EB', borderRadius: 6, padding: '0.35rem 0.75rem' }}>
+            Workflows
+          </a>
           <span style={{ fontSize: 13, color: '#6B7280' }}>{email}</span>
           <button
             onClick={handleLogout}

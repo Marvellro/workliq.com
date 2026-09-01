@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/stale-deals",
       "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/cron/workflows",
+      "schedule": "0 13 * * *"
     }
   ]
 }

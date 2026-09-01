@@ -60,6 +60,8 @@ export default async function DashboardPage({
       message:
         'Notion connected but no page was shared. Please reconnect and select a page when prompted.',
     }
+  } else if (errorParam === 'hubspot_required') {
+    flash = { type: 'error', message: 'Connect HubSpot before setting up workflows.' }
   } else if (errorParam) {
     flash = { type: 'error', message: 'Something went wrong. Please try again.' }
   }
