@@ -3,7 +3,8 @@
 import { useState } from 'react'
 
 type TriggerType = 'deal_stage_changed' | 'deal_created' | 'deal_stale'
-type ActionType = 'slack_message' | 'notion_row' | 'webhook'
+type ActionType = 'slack_message' | 'notion_row' | 'webhook' | 'ai_step'
+type AITask = 'summarize' | 'draft_followup' | 'score_lead' | 'next_action'
 type ConditionOperator = 'equals' | 'not_equals' | 'contains'
 
 type Workflow = {
@@ -15,7 +16,13 @@ type Workflow = {
   condition_operator: ConditionOperator | null
   condition_value: string | null
   action_type: ActionType
-  action_config: { message_template?: string; url?: string }
+  action_config: {
+    message_template?: string
+    url?: string
+    ai_task?: AITask
+    ai_instructions?: string
+    deliver_to?: 'slack_message' | 'notion_row'
+  }
   enabled: boolean
 }
 
@@ -35,6 +42,14 @@ const ACTION_LABELS: Record<ActionType, string> = {
   slack_message: 'Send a Slack message',
   notion_row: 'Add a Notion row',
   webhook: 'Call a webhook',
+  ai_step: 'Ask AI',
+}
+
+const AI_TASK_LABELS: Record<AITask, string> = {
+  summarize: 'Summarise the deal',
+  draft_followup: 'Draft a follow-up email',
+  score_lead: 'Score how urgent it is',
+  next_action: 'Recommend the next action',
 }
 
 function summarize(w: Workflow): string {
@@ -50,7 +65,12 @@ function summarize(w: Workflow): string {
     const opLabel = w.condition_operator === 'not_equals' ? 'is not' : w.condition_operator === 'contains' ? 'contains' : 'is'
     condition = `, if ${w.condition_property} ${opLabel} "${w.condition_value}"`
   }
-  return `When ${trigger}${condition} → ${ACTION_LABELS[w.action_type]}`
+  let action: string = ACTION_LABELS[w.action_type]
+  if (w.action_type === 'ai_step' && w.action_config.ai_task) {
+    const where = w.action_config.deliver_to === 'notion_row' ? 'Notion' : 'Slack'
+    action = `AI: ${AI_TASK_LABELS[w.action_config.ai_task].toLowerCase()}, posted to ${where}`
+  }
+  return `When ${trigger}${condition} → ${action}`
 }
 
 export default function WorkflowsClient({ initialWorkflows, slackConnected, notionConnected }: Props) {
@@ -199,6 +219,9 @@ function NewWorkflowForm({
   const [conditionOperator, setConditionOperator] = useState<ConditionOperator>('equals')
   const [conditionValue, setConditionValue] = useState('')
   const [actionType, setActionType] = useState<ActionType>('slack_message')
+  const [aiTask, setAiTask] = useState<AITask>('summarize')
+  const [aiInstructions, setAiInstructions] = useState('')
+  const [aiDeliverTo, setAiDeliverTo] = useState<'slack_message' | 'notion_row'>('slack_message')
   const [messageTemplate, setMessageTemplate] = useState('')
   const [webhookUrl, setWebhookUrl] = useState('')
   const [saving, setSaving] = useState(false)
@@ -218,6 +241,16 @@ function NewWorkflowForm({
     if (actionType === 'slack_message' && !slackConnected) {
       return setError('Connect Slack first — see Connections.')
     }
+    if (actionType === 'ai_step') {
+      if (aiDeliverTo === 'slack_message' && !slackConnected) {
+        setError('Connect Slack first — that is where the AI result gets posted.')
+        return
+      }
+      if (aiDeliverTo === 'notion_row' && !notionConnected) {
+        setError('Connect Notion first — that is where the AI result gets posted.')
+        return
+      }
+    }
     if (actionType === 'notion_row' && !notionConnected) {
       return setError('Connect Notion first — see Connections.')
     }
@@ -230,6 +263,11 @@ function NewWorkflowForm({
     const action_config: Record<string, unknown> = {}
     if (actionType === 'slack_message' && messageTemplate.trim()) action_config.message_template = messageTemplate.trim()
     if (actionType === 'webhook') action_config.url = webhookUrl.trim()
+    if (actionType === 'ai_step') {
+      action_config.ai_task = aiTask
+      action_config.deliver_to = aiDeliverTo
+      if (aiInstructions.trim()) action_config.ai_instructions = aiInstructions.trim()
+    }
 
     const res = await fetch('/api/workflows', {
       method: 'POST',
@@ -316,8 +354,50 @@ function NewWorkflowForm({
           <option value="slack_message">Send a Slack message {!slackConnected && '(connect Slack first)'}</option>
           <option value="notion_row">Add a Notion row {!notionConnected && '(connect Notion first)'}</option>
           <option value="webhook">Call a webhook</option>
+          <option value="ai_step">Ask AI to write something</option>
         </select>
       </div>
+
+      {actionType === 'ai_step' && (
+        <>
+          <div style={fieldWrap}>
+            <label style={labelStyle}>What should the AI do?</label>
+            <select style={inputStyle} value={aiTask} onChange={(e) => setAiTask(e.target.value as AITask)}>
+              {(Object.keys(AI_TASK_LABELS) as AITask[]).map((t) => (
+                <option key={t} value={t}>{AI_TASK_LABELS[t]}</option>
+              ))}
+            </select>
+          </div>
+
+          <div style={fieldWrap}>
+            <label style={labelStyle}>Post the result to</label>
+            <select
+              style={inputStyle}
+              value={aiDeliverTo}
+              onChange={(e) => setAiDeliverTo(e.target.value as 'slack_message' | 'notion_row')}
+            >
+              <option value="slack_message">Slack {!slackConnected && '(connect Slack first)'}</option>
+              <option value="notion_row">Notion {!notionConnected && '(connect Notion first)'}</option>
+            </select>
+          </div>
+
+          <div style={fieldWrap}>
+            <label style={labelStyle}>Anything specific to tell it? (optional)</label>
+            <textarea
+              style={{ ...inputStyle, minHeight: 60, fontFamily: 'inherit', resize: 'vertical' }}
+              value={aiInstructions}
+              onChange={(e) => setAiInstructions(e.target.value)}
+              maxLength={500}
+              placeholder="Keep it under three sentences and mention our Q1 pricing change."
+            />
+            <p style={{ fontSize: 12, color: '#9CA3AF', marginTop: '0.375rem' }}>
+              The AI only sees the deal name, stage, owner and how long it has been quiet —
+              never contact details or note contents. Each run costs a fraction of a cent
+              and counts against your monthly AI budget.
+            </p>
+          </div>
+        </>
+      )}
 
       {actionType === 'slack_message' && (
         <div style={fieldWrap}>

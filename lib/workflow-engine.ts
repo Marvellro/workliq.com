@@ -6,7 +6,7 @@ import type { ActionPayload } from './workflow-execute'
 const MS_PER_DAY = 1000 * 60 * 60 * 24
 
 export type TriggerType = 'deal_stage_changed' | 'deal_created' | 'deal_stale'
-export type ActionType = 'slack_message' | 'notion_row' | 'webhook'
+export type ActionType = 'slack_message' | 'notion_row' | 'webhook' | 'ai_step'
 export type ConditionOperator = 'equals' | 'not_equals' | 'contains'
 
 export type WorkflowRow = {
@@ -18,7 +18,14 @@ export type WorkflowRow = {
   condition_operator: ConditionOperator | null
   condition_value: string | null
   action_type: ActionType
-  action_config: { message_template?: string; url?: string }
+  action_config: {
+    message_template?: string
+    url?: string
+    // ai_step:
+    ai_task?: 'summarize' | 'draft_followup' | 'score_lead' | 'next_action'
+    ai_instructions?: string
+    deliver_to?: 'slack_message' | 'notion_row'
+  }
   enabled: boolean
 }
 

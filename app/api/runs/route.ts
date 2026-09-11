@@ -16,7 +16,7 @@ export async function GET(req: Request) {
   const limit = Math.min(Number(new URL(req.url).searchParams.get('limit') ?? 50), 200)
   const supabase = getSupabaseAdmin()
 
-  const [runs, queued] = await Promise.all([
+  const [runs, queued, spend] = await Promise.all([
     supabase
       .from('workflow_runs')
       .select('id, workflow_id, deal_id, trigger_fingerprint, status, error_message, fired_at, workflows(name, action_type)')
@@ -33,6 +33,9 @@ export async function GET(req: Request) {
       .in('status', ['pending', 'running', 'dead'])
       .order('created_at', { ascending: false })
       .limit(50),
+    // AI steps cost real money per run, so the spend belongs next to the
+    // activity that caused it rather than buried in a billing page.
+    supabase.rpc('ai_spend_this_month', { p_customer_id: session.customerId }),
   ])
 
   if (runs.error) {
@@ -40,9 +43,18 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'Failed to load activity' }, { status: 500 })
   }
 
+  const spendRow = Array.isArray(spend.data) ? spend.data[0] : spend.data
+
   return NextResponse.json({
     runs: runs.data ?? [],
     queue: queued.data ?? [],
+    aiSpend: spendRow
+      ? {
+          spentUsd: Number(spendRow.spent_usd ?? 0),
+          budgetUsd: Number(spendRow.budget_usd ?? 0),
+          remainingUsd: Number(spendRow.remaining_usd ?? 0),
+        }
+      : null,
   })
 }
 

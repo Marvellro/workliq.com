@@ -160,3 +160,58 @@ up to a day for its retry. Either of these removes that, with no code change:
   `Authorization: Bearer $CRON_SECRET`. Free; the endpoint already authenticates.
 
 See `lib/scheduling.md` for the full reasoning.
+
+---
+
+# Phase 3 — AI workflow steps
+
+## Already applied
+
+`009_ai_steps.sql` is live: the `ai_usage` meter, the
+`ai_monthly_budget_usd` column on `customers` (default **$5.00**), and the
+`ai_spend_this_month` function. Additive only.
+
+## What you need to do
+
+**Add `ANTHROPIC_API_KEY` to Vercel**, for Production, Preview and Development.
+Get one from console.anthropic.com. Until it is set, `ai_step` workflows fail
+with a clear configuration error and every other action is unaffected.
+
+I could not test the live model calls from here — there was no Anthropic
+credential available in this environment. The code is written against the
+documented SDK and typechecks, and everything deterministic around it (cost
+arithmetic, budget enforcement, the month boundary) is unit-tested and verified
+against the database. **The first real call is still unproven.** Create one
+`ai_step` workflow, trigger it, and check Dashboard → Activity before relying
+on it.
+
+## What it costs
+
+Model is `claude-opus-5` at $5/$25 per million input/output tokens. A deal
+summary is roughly 700 tokens in, 150 out — about **$0.0072 per run**, so
+roughly 140 runs per dollar.
+
+Every call is metered into `ai_usage` and checked against the customer's
+monthly budget *before* it runs, using a worst-case estimate that assumes the
+full output allowance. Above the ceiling, AI steps fail closed; nothing else is
+affected. To change a customer's limit:
+
+```sql
+update customers set ai_monthly_budget_usd = 25.00 where email = '...';
+```
+
+Setting it to `0` disables AI steps for that account entirely.
+
+## What is sent to the model
+
+Only four fields, constructed explicitly in `lib/ai.ts` (`DealFacts`):
+
+- deal name
+- current stage
+- owner name
+- what triggered the workflow, and days since last activity
+
+**Never** contact records, email addresses, phone numbers, or note bodies. The
+type is deliberately explicit rather than passing a HubSpot object through, so
+widening the deal fetch later cannot silently start sending more to a third
+party. Worth stating plainly in your privacy policy before you take customers.
