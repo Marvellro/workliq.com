@@ -3,7 +3,6 @@ import { getValidHubSpotToken } from '@/lib/hubspot'
 import { getSupabaseAdmin } from '@/lib/config'
 import { fetchAllDeals, fetchOwnerMap } from '@/lib/hubspot-deals'
 import { runWorkflowsForCustomer, type WorkflowRow } from '@/lib/workflow-engine'
-import { decrypt } from '@/lib/crypto'
 
 // Vercel cron sends Authorization: Bearer {CRON_SECRET} with every invocation.
 const CRON_SECRET = process.env.CRON_SECRET
@@ -25,8 +24,6 @@ export async function GET(req: Request) {
     .select(`
       id,
       hubspot_connections ( hub_id ),
-      slack_connections ( webhook_url ),
-      notion_connections ( access_token, database_id ),
       workflows ( id, name, trigger_type, trigger_config, condition_property, condition_operator, condition_value, action_type, action_config, enabled )
     `)
     .not('hubspot_connections', 'is', null)
@@ -41,7 +38,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: true, processed: 0 })
   }
 
-  let totalFired = 0
+  let totalQueued = 0
   let totalFailed = 0
   let customersProcessed = 0
 
@@ -51,12 +48,6 @@ export async function GET(req: Request) {
     const hubspotConn = Array.isArray(customer.hubspot_connections)
       ? customer.hubspot_connections[0]
       : customer.hubspot_connections
-    const slackConn = Array.isArray(customer.slack_connections)
-      ? customer.slack_connections[0]
-      : customer.slack_connections
-    const notionConn = Array.isArray(customer.notion_connections)
-      ? customer.notion_connections[0]
-      : customer.notion_connections
     const workflows = (customer.workflows ?? []) as WorkflowRow[]
 
     if (!hubspotConn) continue
@@ -85,33 +76,23 @@ export async function GET(req: Request) {
     }
 
     try {
-      const { fired, failed } = await runWorkflowsForCustomer({
+      const { queued, failed } = await runWorkflowsForCustomer({
         supabase,
         customerId,
         hubId: hubspotConn.hub_id,
         deals,
         ownerMap,
         workflows: enabledWorkflows,
-        // Decrypt once per customer per run rather than per action.
-        slackConn: slackConn
-          ? { webhook_url: decrypt(slackConn.webhook_url) }
-          : null,
-        notionConn: notionConn
-          ? {
-              access_token: decrypt(notionConn.access_token),
-              database_id: notionConn.database_id,
-            }
-          : null,
       })
-      totalFired += fired
+      totalQueued += queued
       totalFailed += failed
       customersProcessed++
-      console.log(`[workflows] customer ${customerId}: ${fired} fired, ${failed} failed, ${deals.length} deals checked`)
+      console.log(`[workflows] customer ${customerId}: ${queued} queued, ${failed} failed, ${deals.length} deals checked`)
     } catch (err) {
       console.error(`[workflows] customer ${customerId}: engine run failed —`, err)
     }
   }
 
-  console.log(`[workflows] run complete — ${customersProcessed} customers, ${totalFired} fired, ${totalFailed} failed`)
-  return NextResponse.json({ ok: true, customersProcessed, fired: totalFired, failed: totalFailed })
+  console.log(`[workflows] reconciliation complete — ${customersProcessed} customers, ${totalQueued} queued, ${totalFailed} failed`)
+  return NextResponse.json({ ok: true, customersProcessed, queued: totalQueued, failed: totalFailed })
 }

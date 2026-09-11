@@ -94,9 +94,14 @@ export default function WorkflowsClient({ initialWorkflows, slackConnected, noti
           <div style={{ width: 28, height: 28, background: '#1A56DB', borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 600, color: '#fff' }}>W</div>
           <span style={{ fontSize: 15, fontWeight: 600, color: '#0D0F1A', letterSpacing: '-0.025em' }}>Workliq</span>
         </div>
-        <a href="/dashboard" style={{ fontSize: 13, color: '#6B7280', textDecoration: 'none', border: '1px solid #E5E7EB', borderRadius: 6, padding: '0.35rem 0.75rem' }}>
-          ← Connections
-        </a>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <a href="/dashboard/activity" style={{ fontSize: 13, color: '#6B7280', textDecoration: 'none', border: '1px solid #E5E7EB', borderRadius: 6, padding: '0.35rem 0.75rem' }}>
+            Activity
+          </a>
+          <a href="/dashboard" style={{ fontSize: 13, color: '#6B7280', textDecoration: 'none', border: '1px solid #E5E7EB', borderRadius: 6, padding: '0.35rem 0.75rem' }}>
+            Connections
+          </a>
+        </div>
       </nav>
 
       <div style={{ maxWidth: 720, margin: '0 auto', padding: '2.5rem 1.5rem' }}>
