@@ -1,14 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { HubSpotDeal } from './hubspot-deals'
-import { hubspotDealLink } from './hubspot-deals'
-import {
-  sendSlackMessage,
-  createNotionPage,
-  callWebhook,
-  getOrCreateWebhookSecret,
-  type SlackConnection,
-  type NotionConnection,
-} from './workflow-actions'
+import { enqueue } from './jobs'
+import type { ActionPayload } from './workflow-execute'
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24
 
@@ -29,7 +22,7 @@ export type WorkflowRow = {
   enabled: boolean
 }
 
-type TriggerEvent =
+export type TriggerEvent =
   | { type: 'deal_created'; fingerprint: string }
   | { type: 'deal_stage_changed'; fingerprint: string; newStage: string }
   | { type: 'deal_stale'; fingerprint: string; thresholdDays: number; daysStale: number }
@@ -41,13 +34,11 @@ type RunParams = {
   deals: HubSpotDeal[]
   ownerMap: Map<string, string>
   workflows: WorkflowRow[]
-  slackConn: SlackConnection | null
-  notionConn: NotionConnection | null
 }
 
 // ── Condition evaluation ─────────────────────────────────────────────────────
 
-function getDealPropertyValue(
+export function getDealPropertyValue(
   deal: HubSpotDeal,
   property: string,
   ownerMap: Map<string, string>
@@ -83,7 +74,7 @@ function evaluateCondition(
   }
 }
 
-function workflowMatchesCondition(
+export function workflowMatchesCondition(
   workflow: WorkflowRow,
   deal: HubSpotDeal,
   ownerMap: Map<string, string>
@@ -97,48 +88,23 @@ function workflowMatchesCondition(
 
 // ── Message building ─────────────────────────────────────────────────────────
 
-function fillTemplate(template: string, deal: HubSpotDeal, hubId: string, ownerName: string): string {
-  return template
-    .replaceAll('{{deal_name}}', deal.properties.dealname ?? 'Unnamed deal')
-    .replaceAll('{{stage}}', deal.properties.dealstage ?? 'Unknown stage')
-    .replaceAll('{{owner}}', ownerName)
-    .replaceAll('{{link}}', hubspotDealLink(hubId, deal.id))
-
-}
-
-function defaultSlackText(
-  workflow: WorkflowRow,
-  event: TriggerEvent,
-  deal: HubSpotDeal,
-  hubId: string,
-  ownerName: string
-): string {
-  const dealName = deal.properties.dealname ?? 'Unnamed deal'
-  const link = hubspotDealLink(hubId, deal.id)
-
-  const headline =
-    event.type === 'deal_created'
-      ? `🆕 *New deal* — ${dealName}`
-      : event.type === 'deal_stage_changed'
-      ? `➡️ *Deal moved to ${event.newStage}* — ${dealName}`
-      : `⚠️ *Stale deal* (${event.daysStale}d, threshold ${event.thresholdDays}d) — ${dealName}`
-
-  return [headline, `Owner: ${ownerName}`, `<${link}|View in HubSpot>`].join('\n')
-}
-
 // ── Main entry point ─────────────────────────────────────────────────────────
 
-// Evaluates every deal for one customer against their configured workflows,
-// fires matching actions (deduped via workflow_runs), and keeps deal_snapshots
-// current so the next cron run can detect future changes. Returns counts for
-// logging; individual failures are swallowed per-deal-per-workflow so one bad
-// webhook doesn't stop the rest of the customer's workflows from running.
-export async function runWorkflowsForCustomer(params: RunParams): Promise<{ fired: number; failed: number }> {
-  const { supabase, customerId, hubId, deals, ownerMap, workflows, slackConn, notionConn } = params
+// Evaluates every deal for one customer against their configured workflows and
+// queues a job for each match, keeping deal_snapshots current so the next run
+// can detect future changes.
+//
+// This is now the reconciliation path. Real-time events arrive via
+// app/api/webhooks/hubspot, and this sweep catches anything a webhook dropped
+// (delivery failure, downtime, a subscription added after the fact) plus the
+// staleness triggers, which are time-based and have no webhook to fire them.
+// Both paths share an idempotency key, so an event seen twice delivers once.
+export async function runWorkflowsForCustomer(params: RunParams): Promise<{ queued: number; failed: number }> {
+  const { supabase, customerId, hubId, deals, ownerMap, workflows } = params
 
   const enabledWorkflows = workflows.filter((w) => w.enabled)
   if (enabledWorkflows.length === 0 || deals.length === 0) {
-    return { fired: 0, failed: 0 }
+    return { queued: 0, failed: 0 }
   }
 
   // Distinct staleness thresholds actually configured, so we don't compute
@@ -167,7 +133,7 @@ export async function runWorkflowsForCustomer(params: RunParams): Promise<{ fire
   // subsequent runs detect real creates/changes normally.
   const isFirstRunForCustomer = snapshotMap.size === 0
 
-  let fired = 0
+  let queued = 0
   let failed = 0
 
   for (const deal of deals) {
@@ -234,146 +200,47 @@ export async function runWorkflowsForCustomer(params: RunParams): Promise<{ fire
           ? ownerMap.get(deal.properties.hubspot_owner_id) ?? deal.properties.hubspot_owner_id
           : 'Unassigned'
 
-        // Claim this (workflow, deal, event) atomically before executing the
-        // action, mirroring deal_alerts' claim-first pattern: the upsert
-        // payload carries only the conflict-key columns, so on conflict
-        // Postgres leaves the existing `status` untouched (it's not in the
-        // SET list) rather than resetting it to the default. That means this
-        // one call both creates-if-absent AND reads the current status,
-        // closing the select-then-act race the previous version had (two
-        // overlapping cron invocations could both pass a separate `select`,
-        // both fire the action, and both write 'success'). This narrows but
-        // doesn't fully eliminate the race — two upserts landing in the same
-        // instant could still both read back 'pending' — full mutual
-        // exclusion would need a DB-level compare-and-swap. That residual
-        // risk matches deal_alerts' existing posture and is acceptable for a
-        // once-daily cron with no expected overlapping invocations.
-        const { data: claimed, error: claimErr } = await supabase
-          .from('workflow_runs')
-          .upsert(
-            {
-              workflow_id: workflow.id,
-              customer_id: customerId,
-              deal_id: deal.id,
-              trigger_fingerprint: event.fingerprint,
-            },
-            { onConflict: 'workflow_id,deal_id,trigger_fingerprint', ignoreDuplicates: false }
-          )
-          .select('id, status')
-          .single()
-
-        if (claimErr || !claimed) {
-          console.error(
-            `[workflow-engine] workflow ${workflow.id} deal ${deal.id} event ${event.type}: claim upsert failed —`,
-            claimErr
-          )
-          continue
+        // Enqueue rather than execute.
+        //
+        // Previously the action ran inline here and got exactly one attempt —
+        // a Slack blip or a customer endpoint returning 502 meant the alert
+        // was recorded failed and never retried. Now delivery is a durable job
+        // with backoff and a dead-letter path.
+        //
+        // The idempotency key is the same triple that workflow_runs is unique
+        // on, so this path and the webhook path converge on one delivery even
+        // when both observe the same event.
+        const payload: ActionPayload = {
+          workflowId: workflow.id,
+          customerId,
+          hubId,
+          dealId: deal.id,
+          dealName: deal.properties.dealname,
+          dealStage: deal.properties.dealstage,
+          ownerName,
+          event,
         }
 
-        if (claimed.status === 'success') continue
-
         try {
-          await executeAction(
-            workflow,
-            event,
-            deal,
-            hubId,
-            ownerName,
-            slackConn,
-            notionConn,
-            customerId
-          )
-
-          await supabase
-            .from('workflow_runs')
-            .update({ status: 'success', error_message: null, fired_at: new Date().toISOString() })
-            .eq('id', claimed.id)
-          fired++
+          const jobId = await enqueue({
+            kind: 'workflow.action',
+            customerId,
+            payload: payload as unknown as Record<string, unknown>,
+            idempotencyKey: `workflow.action:${workflow.id}:${deal.id}:${event.fingerprint}`,
+          })
+          // null means an identical job is already queued or running — the work
+          // is scheduled either way, so this is a success, not a failure.
+          if (jobId) queued++
         } catch (err) {
           console.error(
-            `[workflow-engine] workflow ${workflow.id} deal ${deal.id} event ${event.type}: action failed —`,
+            `[workflow-engine] workflow ${workflow.id} deal ${deal.id} event ${event.type}: enqueue failed —`,
             err
           )
-          await supabase
-            .from('workflow_runs')
-            .update({
-              status: 'failed',
-              error_message: err instanceof Error ? err.message : String(err),
-              fired_at: new Date().toISOString(),
-            })
-            .eq('id', claimed.id)
           failed++
         }
       }
     }
   }
 
-  return { fired, failed }
-}
-
-async function executeAction(
-  workflow: WorkflowRow,
-  event: TriggerEvent,
-  deal: HubSpotDeal,
-  hubId: string,
-  ownerName: string,
-  slackConn: SlackConnection | null,
-  notionConn: NotionConnection | null,
-  customerId: string
-): Promise<void> {
-  switch (workflow.action_type) {
-    case 'slack_message': {
-      if (!slackConn) throw new Error('No Slack connection for this customer')
-      const text = workflow.action_config.message_template
-        ? fillTemplate(workflow.action_config.message_template, deal, hubId, ownerName)
-        : defaultSlackText(workflow, event, deal, hubId, ownerName)
-      await sendSlackMessage(slackConn.webhook_url, text)
-      return
-    }
-    case 'notion_row': {
-      if (!notionConn) throw new Error('No Notion connection for this customer')
-      const dealName = deal.properties.dealname ?? 'Unnamed deal'
-      const stage = deal.properties.dealstage ?? 'Unknown'
-      const link = hubspotDealLink(hubId, deal.id)
-      const today = new Date().toISOString().split('T')[0]
-
-      const properties: Record<string, unknown> = {
-        'Deal Name': { title: [{ text: { content: dealName } }] },
-        Stage: { select: { name: stage } },
-        Owner: { rich_text: [{ text: { content: ownerName } }] },
-        'Flagged On': { date: { start: today } },
-        'HubSpot Link': { url: link },
-        Status: { select: { name: 'New' } },
-      }
-      // Days Stale / Threshold only apply to the staleness trigger — the
-      // database's other columns are simply left blank for other events.
-      if (event.type === 'deal_stale') {
-        properties['Days Stale'] = { number: event.daysStale }
-        properties['Threshold'] = { select: { name: String(event.thresholdDays) } }
-      }
-
-      await createNotionPage(notionConn, properties)
-      return
-    }
-    case 'webhook': {
-      const url = workflow.action_config.url
-      if (!url) throw new Error('Webhook workflow has no URL configured')
-
-      // Resolved lazily: only customers who actually use a webhook action ever
-      // get a signing secret generated for them.
-      const secret = await getOrCreateWebhookSecret(customerId)
-
-      await callWebhook(url, {
-        workflow_id: workflow.id,
-        workflow_name: workflow.name,
-        trigger: event.type,
-        deal_id: deal.id,
-        deal_name: deal.properties.dealname,
-        stage: deal.properties.dealstage,
-        owner: ownerName,
-        hubspot_link: hubspotDealLink(hubId, deal.id),
-      }, secret)
-      return
-    }
-  }
+  return { queued, failed }
 }

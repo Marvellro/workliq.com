@@ -79,3 +79,32 @@ export async function fetchOwnerMap(accessToken: string): Promise<Map<string, st
 export function hubspotDealLink(hubId: string, dealId: string): string {
   return `https://app.hubspot.com/contacts/${hubId}/deal/${dealId}`
 }
+
+// Fetches a single deal by ID.
+//
+// Used by the webhook path: a notification carries only the object ID (plus the
+// one property that changed), but building a useful alert needs the deal's name
+// and owner too. Fetching one deal is far cheaper than the full pagination
+// fetchAllDeals does, which is what the reconciliation sweep needs.
+//
+// Returns null for 404, which is normal rather than exceptional: a deal can be
+// deleted between HubSpot emitting the event and us processing it.
+export async function fetchDeal(
+  accessToken: string,
+  dealId: string
+): Promise<HubSpotDeal | null> {
+  const url = new URL(`https://api.hubapi.com/crm/v3/objects/deals/${encodeURIComponent(dealId)}`)
+  url.searchParams.set('properties', DEAL_PROPERTIES)
+
+  const res = await fetch(url.toString(), {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+
+  if (res.status === 404) return null
+  if (!res.ok) {
+    const body = await res.text()
+    throw new Error(`HubSpot deal fetch failed (${res.status}): ${body}`)
+  }
+
+  return (await res.json()) as HubSpotDeal
+}
