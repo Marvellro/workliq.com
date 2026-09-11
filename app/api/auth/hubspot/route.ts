@@ -1,17 +1,25 @@
 import { NextResponse } from 'next/server'
 import { randomBytes } from 'crypto'
 import { getCustomerSession } from '@/lib/session'
+import { appUrl, OAUTH_REDIRECT_URIS } from '@/lib/config'
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit'
 
-const HUBSPOT_CLIENT_ID = '399fbd57-9bd1-4d3a-926a-31f18232704f'
-const HUBSPOT_REDIRECT_URI = 'https://www.workliq.com/api/auth/hubspot/callback'
+import { HUBSPOT_CLIENT_ID } from '@/lib/hubspot'
+
+const HUBSPOT_REDIRECT_URI = OAUTH_REDIRECT_URIS.hubspot
 const HUBSPOT_SCOPE = 'oauth crm.objects.deals.read'
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://workliq.com'
 
 export async function GET() {
   const session = await getCustomerSession()
   if (!session) {
-    return NextResponse.redirect(`${APP_URL}/dashboard/login`)
+    return NextResponse.redirect(appUrl('/dashboard/login'))
   }
+
+  const limit = await checkRateLimit(
+    `oauth:hubspot:${session.customerId}`,
+    RATE_LIMITS.oauthStart
+  )
+  if (!limit.allowed) return rateLimitResponse(limit)
 
   // Generate a random state token for CSRF protection. It's stored in an
   // httpOnly cookie and must match the value HubSpot echoes back in the

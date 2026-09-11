@@ -1,24 +1,19 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import {
+  getSupabaseAnon,
+  getSupabaseAdmin,
+  SESSION_COOKIE_OPTIONS,
+  ACCESS_TOKEN_COOKIE,
+  REFRESH_TOKEN_COOKIE,
+} from '@/lib/config'
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit'
+import { recordAudit, clientIp, userAgent } from '@/lib/audit'
 
-// Cookie lifetime: 7 days. Supabase JWTs expire sooner (default 1 hour) but
-// the refresh_token is long-lived. The session helper re-hydrates via
-// setSession on each request, which will auto-refresh the JWT if needed.
-const SESSION_MAX_AGE = 60 * 60 * 24 * 7
-
-function getSupabase() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  )
-}
-
-function getSupabaseAdmin() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
-}
+// Exchanges an emailed OTP for a session.
+//
+// Cookie lifetime is 7 days. Supabase access tokens expire much sooner (1 hour
+// by default), but lib/session.ts refreshes them and writes the rotated pair
+// back, so the cookie lifetime is the real session length.
 
 export async function POST(req: Request) {
   let body: unknown
@@ -34,43 +29,70 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Missing email or code' }, { status: 400 })
   }
 
-  const { data, error } = await getSupabase().auth.verifyOtp({
-    email,
+  const normalizedEmail = email.trim().toLowerCase()
+
+  // A 6-digit OTP is only a million possibilities — without a cap, an attacker
+  // who knows a customer's email address can simply enumerate them. Limit by
+  // email AND by IP: by email alone, an attacker could lock a victim out by
+  // exhausting their quota; by IP alone, a distributed attempt slips through.
+  const ip = clientIp(req)
+  const [emailLimit, ipLimit] = await Promise.all([
+    checkRateLimit(`otp:email:${normalizedEmail}`, RATE_LIMITS.otpVerify),
+    checkRateLimit(`otp:ip:${ip ?? 'unknown'}`, RATE_LIMITS.otpVerify),
+  ])
+
+  if (!emailLimit.allowed || !ipLimit.allowed) {
+    await recordAudit({
+      action: 'ratelimit.exceeded',
+      actor: normalizedEmail,
+      metadata: { endpoint: 'auth/customer/verify' },
+      ip,
+      userAgent: userAgent(req),
+    })
+    return rateLimitResponse(emailLimit.allowed ? ipLimit : emailLimit)
+  }
+
+  const { data, error } = await getSupabaseAnon().auth.verifyOtp({
+    email: normalizedEmail,
     token: otp,
     type: 'email',
   })
 
   if (error || !data.session || !data.user) {
-    return NextResponse.json(
-      { error: error?.message ?? 'Verification failed' },
-      { status: 401 }
-    )
+    await recordAudit({
+      action: 'customer.login_failed',
+      actor: normalizedEmail,
+      metadata: { reason: error?.message ?? 'no session returned' },
+      ip,
+      userAgent: userAgent(req),
+    })
+    // Deliberately generic: echoing Supabase's message back distinguishes
+    // "no such user" from "wrong code", which confirms to an attacker whether
+    // an address is registered.
+    return NextResponse.json({ error: 'Invalid or expired code' }, { status: 401 })
   }
 
   // Ensure a customers row exists for this user. Uses service role so it can
   // write regardless of RLS. onConflict: 'id' makes re-logins idempotent.
   const { error: customerError } = await getSupabaseAdmin()
     .from('customers')
-    .upsert(
-      { id: data.user.id, email: data.user.email },
-      { onConflict: 'id' }
-    )
+    .upsert({ id: data.user.id, email: data.user.email }, { onConflict: 'id' })
 
   if (customerError) {
     // Don't block login over this — the row may already exist. Log and continue.
     console.error('Failed to upsert customer row:', customerError)
   }
 
-  const cookieOpts = {
-    httpOnly: true,
-    secure: true,
-    sameSite: 'lax' as const,
-    path: '/',
-    maxAge: SESSION_MAX_AGE,
-  }
+  await recordAudit({
+    action: 'customer.login',
+    customerId: data.user.id,
+    actor: data.user.email,
+    ip,
+    userAgent: userAgent(req),
+  })
 
   const response = NextResponse.json({ success: true })
-  response.cookies.set('sb-access-token', data.session.access_token, cookieOpts)
-  response.cookies.set('sb-refresh-token', data.session.refresh_token, cookieOpts)
+  response.cookies.set(ACCESS_TOKEN_COOKIE, data.session.access_token, SESSION_COOKIE_OPTIONS)
+  response.cookies.set(REFRESH_TOKEN_COOKIE, data.session.refresh_token, SESSION_COOKIE_OPTIONS)
   return response
 }

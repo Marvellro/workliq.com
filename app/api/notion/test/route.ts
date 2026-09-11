@@ -1,15 +1,9 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 import { getCustomerSession } from '@/lib/session'
+import { getSupabaseAdmin } from '@/lib/config'
+import { decrypt } from '@/lib/crypto'
 
 const NOTION_VERSION = '2022-06-28'
-
-function getSupabaseAdmin() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
-}
 
 export async function POST() {
   const session = await getCustomerSession()
@@ -38,7 +32,7 @@ export async function POST() {
     const pageRes = await fetch('https://api.notion.com/v1/pages', {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${conn.access_token}`,
+        Authorization: `Bearer ${decrypt(conn.access_token)}`,
         'Content-Type': 'application/json',
         'Notion-Version': NOTION_VERSION,
       },

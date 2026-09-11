@@ -5,6 +5,7 @@ import {
   sendSlackMessage,
   createNotionPage,
   callWebhook,
+  getOrCreateWebhookSecret,
   type SlackConnection,
   type NotionConnection,
 } from './workflow-actions'
@@ -272,7 +273,16 @@ export async function runWorkflowsForCustomer(params: RunParams): Promise<{ fire
         if (claimed.status === 'success') continue
 
         try {
-          await executeAction(workflow, event, deal, hubId, ownerName, slackConn, notionConn)
+          await executeAction(
+            workflow,
+            event,
+            deal,
+            hubId,
+            ownerName,
+            slackConn,
+            notionConn,
+            customerId
+          )
 
           await supabase
             .from('workflow_runs')
@@ -308,7 +318,8 @@ async function executeAction(
   hubId: string,
   ownerName: string,
   slackConn: SlackConnection | null,
-  notionConn: NotionConnection | null
+  notionConn: NotionConnection | null,
+  customerId: string
 ): Promise<void> {
   switch (workflow.action_type) {
     case 'slack_message': {
@@ -347,6 +358,11 @@ async function executeAction(
     case 'webhook': {
       const url = workflow.action_config.url
       if (!url) throw new Error('Webhook workflow has no URL configured')
+
+      // Resolved lazily: only customers who actually use a webhook action ever
+      // get a signing secret generated for them.
+      const secret = await getOrCreateWebhookSecret(customerId)
+
       await callWebhook(url, {
         workflow_id: workflow.id,
         workflow_name: workflow.name,
@@ -356,7 +372,7 @@ async function executeAction(
         stage: deal.properties.dealstage,
         owner: ownerName,
         hubspot_link: hubspotDealLink(hubId, deal.id),
-      })
+      }, secret)
       return
     }
   }

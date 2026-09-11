@@ -1,16 +1,23 @@
 import { NextResponse } from 'next/server'
 import { randomBytes } from 'crypto'
 import { getCustomerSession } from '@/lib/session'
+import { appUrl, OAUTH_REDIRECT_URIS } from '@/lib/config'
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit'
 
 const SLACK_CLIENT_ID = '1139561584631.11439398705216'
-const SLACK_REDIRECT_URI = 'https://workliq.com/api/auth/slack/callback'
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://workliq.com'
+const SLACK_REDIRECT_URI = OAUTH_REDIRECT_URIS.slack
 
 export async function GET() {
   const session = await getCustomerSession()
   if (!session) {
-    return NextResponse.redirect(`${APP_URL}/dashboard/login`)
+    return NextResponse.redirect(appUrl('/dashboard/login'))
   }
+
+  const limit = await checkRateLimit(
+    `oauth:slack:${session.customerId}`,
+    RATE_LIMITS.oauthStart
+  )
+  if (!limit.allowed) return rateLimitResponse(limit)
 
   // CSRF state token — same pattern as HubSpot. Stored in an httpOnly cookie
   // and verified when Slack echoes it back in the callback.

@@ -1,25 +1,19 @@
 import { NextResponse } from "next/server";
 import { Resend } from "resend";
-import { createClient } from "@supabase/supabase-js";
+import { getSupabaseAdmin, APP_URL } from "@/lib/config";
 
 function getResend() {
   return new Resend(process.env.RESEND_API_KEY);
-}
-function getSupabase() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
 }
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const token = searchParams.get("token");
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://workliq.com";
+  const appUrl = APP_URL;
 
   if (!token) return NextResponse.redirect(`${appUrl}/?error=invalid`);
 
-  const supabase = getSupabase();
+  const supabase = getSupabaseAdmin();
   const { data: entry, error } = await supabase
     .from("waitlist")
     .select("*")

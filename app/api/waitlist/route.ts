@@ -1,15 +1,11 @@
 import { NextResponse } from "next/server";
 import { Resend } from "resend";
-import { createClient } from "@supabase/supabase-js";
+import { getSupabaseAdmin, appUrl } from "@/lib/config";
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from "@/lib/rate-limit";
+import { clientIp } from "@/lib/audit";
 
 function getResend() {
   return new Resend(process.env.RESEND_API_KEY);
-}
-function getSupabase() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
 }
 
 export async function POST(req: Request) {
@@ -23,9 +19,26 @@ export async function POST(req: Request) {
       );
     }
 
+    // Every call to this endpoint sends an email through Resend. Unthrottled,
+    // it is an open relay: anyone can make Workliq send mail to any address,
+    // which burns the sending domain's reputation and gets hello@workliq.com
+    // blacklisted. Limit by IP (the submitter) and by target address (so one
+    // victim cannot be mail-bombed from many sources).
+    const ip = clientIp(req);
+    const [ipLimit, emailLimit] = await Promise.all([
+      checkRateLimit(`waitlist:ip:${ip ?? "unknown"}`, RATE_LIMITS.waitlist),
+      checkRateLimit(
+        `waitlist:email:${String(email).trim().toLowerCase()}`,
+        RATE_LIMITS.waitlist
+      ),
+    ]);
+    if (!ipLimit.allowed || !emailLimit.allowed) {
+      return rateLimitResponse(ipLimit.allowed ? emailLimit : ipLimit);
+    }
+
     const token = crypto.randomUUID();
 
-    const { error: dbError } = await getSupabase()
+    const { error: dbError } = await getSupabaseAdmin()
       .from("waitlist")
       .upsert({ name, email, role, token, confirmed: false, created_at: new Date().toISOString() });
 
@@ -34,7 +47,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Failed to save to waitlist" }, { status: 500 });
     }
 
-    const confirmUrl = `${process.env.NEXT_PUBLIC_APP_URL}/api/confirm?token=${token}`;
+    const confirmUrl = appUrl(`/api/confirm?token=${token}`);
 
     await getResend().emails.send({
       from: "Marvellous at Workliq <hello@workliq.com>",

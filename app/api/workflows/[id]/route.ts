@@ -1,13 +1,7 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 import { getCustomerSession } from '@/lib/session'
-
-function getSupabaseAdmin() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
-}
+import { getSupabaseAdmin } from '@/lib/config'
+import { recordAudit, clientIp, userAgent } from '@/lib/audit'
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getCustomerSession()
@@ -35,10 +29,19 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     return NextResponse.json({ error: 'Workflow not found' }, { status: 404 })
   }
 
+  await recordAudit({
+    action: body.enabled ? 'workflow.enabled' : 'workflow.disabled',
+    customerId: session.customerId,
+    actor: session.email,
+    metadata: { workflow_id: id },
+    ip: clientIp(req),
+    userAgent: userAgent(req),
+  })
+
   return NextResponse.json({ workflow: data })
 }
 
-export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getCustomerSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
@@ -53,6 +56,15 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
 
   if (error) return NextResponse.json({ error: 'Delete failed' }, { status: 500 })
   if (!count) return NextResponse.json({ error: 'Workflow not found' }, { status: 404 })
+
+  await recordAudit({
+    action: 'workflow.deleted',
+    customerId: session.customerId,
+    actor: session.email,
+    metadata: { workflow_id: id },
+    ip: clientIp(req),
+    userAgent: userAgent(req),
+  })
 
   return NextResponse.json({ ok: true })
 }

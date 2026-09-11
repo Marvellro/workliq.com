@@ -1,16 +1,23 @@
 import { NextResponse } from 'next/server'
 import { randomBytes } from 'crypto'
 import { getCustomerSession } from '@/lib/session'
+import { appUrl, OAUTH_REDIRECT_URIS } from '@/lib/config'
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit'
 
 const NOTION_CLIENT_ID = '386d872b-594c-8162-84f2-00370d6f32cc'
-const NOTION_REDIRECT_URI = 'https://workliq.com/api/auth/notion/callback'
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://workliq.com'
+const NOTION_REDIRECT_URI = OAUTH_REDIRECT_URIS.notion
 
 export async function GET() {
   const session = await getCustomerSession()
   if (!session) {
-    return NextResponse.redirect(`${APP_URL}/dashboard/login`)
+    return NextResponse.redirect(appUrl('/dashboard/login'))
   }
+
+  const limit = await checkRateLimit(
+    `oauth:notion:${session.customerId}`,
+    RATE_LIMITS.oauthStart
+  )
+  if (!limit.allowed) return rateLimitResponse(limit)
 
   // CSRF state token — same pattern as HubSpot and Slack.
   const state = randomBytes(32).toString('hex')

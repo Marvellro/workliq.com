@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
-import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { getValidHubSpotToken } from '@/lib/hubspot'
+import { getSupabaseAdmin } from '@/lib/config'
+import { decrypt } from '@/lib/crypto'
 
 // Vercel cron sends Authorization: Bearer {CRON_SECRET} with every invocation.
 // Without this check, anyone who knows the URL could trigger the job.
@@ -53,13 +54,6 @@ type AlertRow = {
 }
 
 // ── Supabase ──────────────────────────────────────────────────────────────────
-
-function getSupabaseAdmin(): SupabaseClient {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
-}
 
 // ── HubSpot helpers ───────────────────────────────────────────────────────────
 
@@ -172,7 +166,7 @@ async function createNotionRow(
   const res = await fetch('https://api.notion.com/v1/pages', {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${conn.access_token}`,
+      Authorization: `Bearer ${decrypt(conn.access_token)}`,
       'Content-Type': 'application/json',
       'Notion-Version': NOTION_VERSION,
     },
@@ -356,7 +350,7 @@ export async function GET(req: Request) {
       if (!alert.slack_notified && slackConn) {
         try {
           await postSlackAlert(
-            (slackConn as SlackConnection).webhook_url,
+            decrypt((slackConn as SlackConnection).webhook_url),
             deal,
             daysStale,
             threshold,

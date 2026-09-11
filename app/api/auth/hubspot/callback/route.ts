@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 import { getCustomerSession } from '@/lib/session'
+import { getSupabaseAdmin, appUrl, APP_URL, OAUTH_REDIRECT_URIS } from '@/lib/config'
+import { encrypt } from '@/lib/crypto'
+import { recordAudit, clientIp, userAgent } from '@/lib/audit'
 
-const HUBSPOT_CLIENT_ID = '399fbd57-9bd1-4d3a-926a-31f18232704f'
-const HUBSPOT_REDIRECT_URI = 'https://www.workliq.com/api/auth/hubspot/callback'
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://workliq.com'
+import { HUBSPOT_CLIENT_ID } from '@/lib/hubspot'
+
+const HUBSPOT_REDIRECT_URI = OAUTH_REDIRECT_URIS.hubspot
 
 type HubSpotTokenResponse = {
   access_token: string
@@ -13,13 +15,6 @@ type HubSpotTokenResponse = {
   token_type: string
   hub_id: number        // portal ID — now included directly in the 2026-03 token response
   scopes: string[]
-}
-
-function getSupabaseAdmin() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
 }
 
 // Extracts a single named cookie value from the raw Cookie header string.
@@ -58,6 +53,12 @@ export async function GET(req: Request) {
 
   if (!storedState || storedState !== state) {
     console.error('HubSpot OAuth state mismatch — possible CSRF')
+    await recordAudit({
+      action: 'connection.failed',
+      metadata: { provider: 'hubspot', reason: 'state_mismatch' },
+      ip: clientIp(req),
+      userAgent: userAgent(req),
+    })
     return NextResponse.redirect(`${APP_URL}/dashboard?error=hubspot_state_mismatch`)
   }
 
@@ -111,8 +112,11 @@ export async function GET(req: Request) {
     .upsert(
       {
         customer_id: session.customerId,
-        access_token: tokenData.access_token,
-        refresh_token: tokenData.refresh_token,
+        // Encrypted at rest — see lib/crypto.ts. A HubSpot refresh token is a
+        // long-lived read of the customer's entire CRM, so it must never sit in
+        // the database in a form a database compromise alone can use.
+        access_token: encrypt(tokenData.access_token),
+        refresh_token: encrypt(tokenData.refresh_token),
         expires_at: expiresAt,
         hub_id: hubId,
         updated_at: new Date().toISOString(),
@@ -125,8 +129,18 @@ export async function GET(req: Request) {
     return NextResponse.redirect(`${APP_URL}/dashboard?error=hubspot_db_failed`)
   }
 
+  await recordAudit({
+    action: 'connection.created',
+    customerId: session.customerId,
+    actor: session.email,
+    // hub_id identifies which portal was linked; no token material here.
+    metadata: { provider: 'hubspot', hub_id: hubId },
+    ip: clientIp(req),
+    userAgent: userAgent(req),
+  })
+
   // Clear the state cookie now that it's been consumed
-  const response = NextResponse.redirect(`${APP_URL}/dashboard?connected=hubspot`)
+  const response = NextResponse.redirect(appUrl('/dashboard?connected=hubspot'))
   response.cookies.set('hubspot_oauth_state', '', { maxAge: 0, path: '/' })
   return response
 }

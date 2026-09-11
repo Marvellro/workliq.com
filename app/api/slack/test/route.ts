@@ -1,13 +1,7 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 import { getCustomerSession } from '@/lib/session'
-
-function getSupabaseAdmin() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
-}
+import { getSupabaseAdmin } from '@/lib/config'
+import { decrypt } from '@/lib/crypto'
 
 export async function POST() {
   const session = await getCustomerSession()
@@ -28,7 +22,7 @@ export async function POST() {
 
   // POST the test message directly to the incoming webhook URL
   try {
-    const slackRes = await fetch(conn.webhook_url, {
+    const slackRes = await fetch(decrypt(conn.webhook_url), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

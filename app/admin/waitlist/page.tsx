@@ -3,14 +3,9 @@
 export const dynamic = 'force-dynamic'
 
 import { useEffect, useState, useCallback } from 'react'
-import { createClient } from '@supabase/supabase-js'
 
-function getSupabase() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  )
-}
+// All data access goes through /api/admin/*, which authorizes each request
+// server-side via lib/admin.ts. The browser holds no database credentials.
 
 type WaitlistStatus = 'pending' | 'invited' | 'rejected'
 
@@ -47,12 +42,15 @@ export default function AdminWaitlistPage() {
 
   const fetchEntries = useCallback(async () => {
     setLoading(true)
-    const { data, error } = await getSupabase()
-      .from('waitlist')
-      .select('*')
-      .order('created_at', { ascending: false })
-    if (!error && data) setEntries(data as WaitlistEntry[])
-    setLoading(false)
+    try {
+      const res = await fetch('/api/admin/waitlist')
+      if (res.ok) {
+        const json = await res.json()
+        setEntries(json.entries as WaitlistEntry[])
+      }
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
   useEffect(() => { fetchEntries() }, [fetchEntries])
@@ -84,11 +82,12 @@ export default function AdminWaitlistPage() {
   async function rejectUser(entry: WaitlistEntry) {
     if (!confirm(`Reject ${entry.name}?`)) return
     setBusy(entry.id)
-    const { error } = await getSupabase()
-      .from('waitlist')
-      .update({ status: 'rejected', rejected_at: new Date().toISOString() })
-      .eq('id', entry.id)
-    if (error) showToast(error.message, false)
+    const res = await fetch('/api/admin/waitlist', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: entry.id, status: 'rejected' }),
+    })
+    if (!res.ok) showToast((await res.json()).error ?? 'Failed', false)
     else { showToast(`${entry.name} rejected`); await fetchEntries() }
     setBusy(null)
   }
@@ -96,8 +95,10 @@ export default function AdminWaitlistPage() {
   async function removeUser(entry: WaitlistEntry) {
     if (!confirm(`Permanently delete ${entry.name}?`)) return
     setBusy(entry.id)
-    const { error } = await getSupabase().from('waitlist').delete().eq('id', entry.id)
-    if (error) showToast(error.message, false)
+    const res = await fetch(`/api/admin/waitlist?id=${encodeURIComponent(entry.id)}`, {
+      method: 'DELETE',
+    })
+    if (!res.ok) showToast((await res.json()).error ?? 'Failed', false)
     else { showToast(`${entry.name} removed`); await fetchEntries() }
     setBusy(null)
   }

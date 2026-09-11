@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 import { getCustomerSession } from '@/lib/session'
+import { getSupabaseAdmin, appUrl, APP_URL, OAUTH_REDIRECT_URIS } from '@/lib/config'
+import { encrypt } from '@/lib/crypto'
+import { recordAudit, clientIp, userAgent } from '@/lib/audit'
 
-const SLACK_CLIENT_ID = '1139561584631.11439398705216'
-const SLACK_REDIRECT_URI = 'https://workliq.com/api/auth/slack/callback'
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://workliq.com'
+export const SLACK_CLIENT_ID = '1139561584631.11439398705216'
+const SLACK_REDIRECT_URI = OAUTH_REDIRECT_URIS.slack
 
 type SlackOAuthResponse = {
   ok: boolean
@@ -20,13 +21,6 @@ type SlackOAuthResponse = {
     id: string
     name: string
   }
-}
-
-function getSupabaseAdmin() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
 }
 
 function parseCookieValue(cookieHeader: string, name: string): string | null {
@@ -59,6 +53,12 @@ export async function GET(req: Request) {
 
   if (!storedState || storedState !== state) {
     console.error('Slack OAuth state mismatch — possible CSRF')
+    await recordAudit({
+      action: 'connection.failed',
+      metadata: { provider: 'slack', reason: 'state_mismatch' },
+      ip: clientIp(req),
+      userAgent: userAgent(req),
+    })
     return NextResponse.redirect(`${APP_URL}/dashboard?error=slack_state_mismatch`)
   }
 
@@ -118,8 +118,11 @@ export async function GET(req: Request) {
     .upsert(
       {
         customer_id: session.customerId,
-        access_token: tokenData.access_token,
-        webhook_url: tokenData.incoming_webhook.url,
+        // Encrypted at rest. The webhook URL is itself a bearer credential —
+        // anyone holding it can post arbitrary messages into the customer's
+        // Slack channel as Workliq.
+        access_token: encrypt(tokenData.access_token),
+        webhook_url: encrypt(tokenData.incoming_webhook.url),
         channel_name: tokenData.incoming_webhook.channel,
         team_id: tokenData.team.id,
         team_name: tokenData.team.name,
@@ -133,7 +136,21 @@ export async function GET(req: Request) {
     return NextResponse.redirect(`${APP_URL}/dashboard?error=slack_db_failed`)
   }
 
-  const response = NextResponse.redirect(`${APP_URL}/dashboard?connected=slack`)
+  await recordAudit({
+    action: 'connection.created',
+    customerId: session.customerId,
+    actor: session.email,
+    // Channel and team names only — never the webhook URL, which is a secret.
+    metadata: {
+      provider: 'slack',
+      team_name: tokenData.team.name,
+      channel: tokenData.incoming_webhook.channel,
+    },
+    ip: clientIp(req),
+    userAgent: userAgent(req),
+  })
+
+  const response = NextResponse.redirect(appUrl('/dashboard?connected=slack'))
   response.cookies.set('slack_oauth_state', '', { maxAge: 0, path: '/' })
   return response
 }

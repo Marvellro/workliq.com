@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 import { getCustomerSession } from '@/lib/session'
+import { getSupabaseAdmin, appUrl, APP_URL, OAUTH_REDIRECT_URIS } from '@/lib/config'
+import { encrypt } from '@/lib/crypto'
+import { recordAudit, clientIp, userAgent } from '@/lib/audit'
 
-const NOTION_CLIENT_ID = '386d872b-594c-8162-84f2-00370d6f32cc'
-const NOTION_REDIRECT_URI = 'https://workliq.com/api/auth/notion/callback'
+export const NOTION_CLIENT_ID = '386d872b-594c-8162-84f2-00370d6f32cc'
+const NOTION_REDIRECT_URI = OAUTH_REDIRECT_URIS.notion
 const NOTION_VERSION = '2022-06-28'
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://workliq.com'
 
 type NotionTokenResponse = {
   access_token: string
@@ -25,13 +26,6 @@ type NotionPage = {
 type NotionSearchResponse = {
   results: NotionPage[]
   has_more: boolean
-}
-
-function getSupabaseAdmin() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
 }
 
 function parseCookieValue(cookieHeader: string, name: string): string | null {
@@ -71,6 +65,12 @@ export async function GET(req: Request) {
 
   if (!storedState || storedState !== state) {
     console.error('Notion OAuth state mismatch — possible CSRF')
+    await recordAudit({
+      action: 'connection.failed',
+      metadata: { provider: 'notion', reason: 'state_mismatch' },
+      ip: clientIp(req),
+      userAgent: userAgent(req),
+    })
     return NextResponse.redirect(`${APP_URL}/dashboard?error=notion_state_mismatch`)
   }
 
@@ -212,7 +212,9 @@ export async function GET(req: Request) {
     .upsert(
       {
         customer_id:    session.customerId,
-        access_token:   tokenData.access_token,
+        // Encrypted at rest. Notion tokens never expire, so a leaked one grants
+        // indefinite write access to the customer's workspace.
+        access_token:   encrypt(tokenData.access_token),
         workspace_id:   tokenData.workspace_id,
         workspace_name: tokenData.workspace_name,
         database_id:    databaseId,
@@ -227,7 +229,20 @@ export async function GET(req: Request) {
     return NextResponse.redirect(`${APP_URL}/dashboard?error=notion_db_failed`)
   }
 
-  const response = NextResponse.redirect(`${APP_URL}/dashboard?connected=notion`)
+  await recordAudit({
+    action: 'connection.created',
+    customerId: session.customerId,
+    actor: session.email,
+    metadata: {
+      provider: 'notion',
+      workspace_name: tokenData.workspace_name,
+      database_id: databaseId,
+    },
+    ip: clientIp(req),
+    userAgent: userAgent(req),
+  })
+
+  const response = NextResponse.redirect(appUrl('/dashboard?connected=notion'))
   response.cookies.set('notion_oauth_state', '', { maxAge: 0, path: '/' })
   return response
 }

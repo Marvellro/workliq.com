@@ -6,6 +6,10 @@
     "skipLibCheck": true,
     "strict": true,
     "noEmit": true,
+    // Node 24 strips types natively but requires the explicit .ts extension on
+    // relative imports (scripts/backfill-encryption.ts). Safe here because
+    // noEmit is set — tsc never writes the unresolvable specifier anywhere.
+    "allowImportingTsExtensions": true,
     "esModuleInterop": true,
     "module": "esnext",
     "moduleResolution": "bundler",

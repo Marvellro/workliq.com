@@ -1,18 +1,12 @@
 import { NextResponse } from 'next/server'
-import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { getValidHubSpotToken } from '@/lib/hubspot'
+import { getSupabaseAdmin } from '@/lib/config'
 import { fetchAllDeals, fetchOwnerMap } from '@/lib/hubspot-deals'
 import { runWorkflowsForCustomer, type WorkflowRow } from '@/lib/workflow-engine'
+import { decrypt } from '@/lib/crypto'
 
 // Vercel cron sends Authorization: Bearer {CRON_SECRET} with every invocation.
 const CRON_SECRET = process.env.CRON_SECRET
-
-function getSupabaseAdmin(): SupabaseClient {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
-}
 
 export async function GET(req: Request) {
   const authHeader = req.headers.get('authorization')
@@ -98,8 +92,16 @@ export async function GET(req: Request) {
         deals,
         ownerMap,
         workflows: enabledWorkflows,
-        slackConn: slackConn ?? null,
-        notionConn: notionConn ?? null,
+        // Decrypt once per customer per run rather than per action.
+        slackConn: slackConn
+          ? { webhook_url: decrypt(slackConn.webhook_url) }
+          : null,
+        notionConn: notionConn
+          ? {
+              access_token: decrypt(notionConn.access_token),
+              database_id: notionConn.database_id,
+            }
+          : null,
       })
       totalFired += fired
       totalFailed += failed

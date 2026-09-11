@@ -1,13 +1,9 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 import { getCustomerSession } from '@/lib/session'
-
-function getSupabaseAdmin() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
-}
+import { getSupabaseAdmin } from '@/lib/config'
+import { validateWebhookUrl, BlockedAddressError } from '@/lib/safe-fetch'
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit'
+import { recordAudit, clientIp, userAgent } from '@/lib/audit'
 
 const TRIGGER_TYPES = ['deal_stage_changed', 'deal_created', 'deal_stale']
 const ACTION_TYPES = ['slack_message', 'notion_row', 'webhook']
@@ -36,6 +32,12 @@ export async function GET() {
 export async function POST(req: Request) {
   const session = await getCustomerSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const limit = await checkRateLimit(
+    `workflow:${session.customerId}`,
+    RATE_LIMITS.workflowWrite
+  )
+  if (!limit.allowed) return rateLimitResponse(limit)
 
   const body = await req.json().catch(() => null)
   if (!body) return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
@@ -74,8 +76,23 @@ export async function POST(req: Request) {
   }
   if (action_type === 'webhook') {
     const url = action_config?.url
-    if (typeof url !== 'string' || !url.startsWith('https://')) {
-      return NextResponse.json({ error: 'webhook requires a valid https action_config.url' }, { status: 400 })
+    if (typeof url !== 'string') {
+      return NextResponse.json({ error: 'webhook requires action_config.url' }, { status: 400 })
+    }
+    // A `startsWith('https://')` check was all this used to do, which allowed
+    // https://169.254.169.254 and every other internal target. validateWebhookUrl
+    // resolves the host and rejects private/loopback/link-local addresses.
+    //
+    // This is a save-time convenience check that gives the customer immediate
+    // feedback; DNS can change afterwards, so lib/safe-fetch.ts re-validates on
+    // every delivery. That is the actual boundary.
+    try {
+      await validateWebhookUrl(url)
+    } catch (err) {
+      if (err instanceof BlockedAddressError) {
+        return NextResponse.json({ error: err.message }, { status: 400 })
+      }
+      throw err
     }
   }
 
@@ -101,6 +118,17 @@ export async function POST(req: Request) {
     console.error('[api/workflows] insert failed:', error)
     return NextResponse.json({ error: 'Failed to create workflow' }, { status: 500 })
   }
+
+  await recordAudit({
+    action: 'workflow.created',
+    customerId: session.customerId,
+    actor: session.email,
+    // No action_config here: for a webhook workflow it holds the customer's
+    // endpoint URL, which the audit log should not carry.
+    metadata: { workflow_id: data.id, trigger_type, action_type },
+    ip: clientIp(req),
+    userAgent: userAgent(req),
+  })
 
   return NextResponse.json({ workflow: data }, { status: 201 })
 }
