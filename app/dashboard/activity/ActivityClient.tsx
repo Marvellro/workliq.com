@@ -24,9 +24,24 @@ type QueueItem = {
   created_at: string
 }
 
+type AISpend = {
+  spentUsd: number
+  budgetUsd: number
+  remainingUsd: number
+}
+
 type Props = {
   initialRuns: Run[]
   initialQueue: QueueItem[]
+  initialSpend: AISpend | null
+}
+
+// Matches lib/ai-pricing.ts formatUsd. Sub-cent amounts keep precision — a real
+// charge shown as "$0.00" reads as either free or broken.
+function formatUsd(amount: number): string {
+  if (amount === 0) return '$0.00'
+  if (amount < 0.01) return `$${amount.toFixed(4)}`
+  return `$${amount.toFixed(2)}`
 }
 
 const STATUS_STYLE: Record<string, { bg: string; fg: string; label: string }> = {
@@ -85,9 +100,10 @@ function useNow(): number {
   )
 }
 
-export default function ActivityClient({ initialRuns, initialQueue }: Props) {
+export default function ActivityClient({ initialRuns, initialQueue, initialSpend }: Props) {
   const [runs, setRuns] = useState<Run[]>(initialRuns)
   const [queue, setQueue] = useState<QueueItem[]>(initialQueue)
+  const [spend, setSpend] = useState<AISpend | null>(initialSpend)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const now = useNow()
@@ -98,6 +114,7 @@ export default function ActivityClient({ initialRuns, initialQueue }: Props) {
     const json = await res.json()
     setRuns(json.runs)
     setQueue(json.queue)
+    setSpend(json.aiSpend ?? null)
   }, [])
 
   // Work moves through the queue in the background, so a static snapshot goes
@@ -156,6 +173,34 @@ export default function ActivityClient({ initialRuns, initialQueue }: Props) {
             Every action your workflows have taken, and anything still waiting.
           </p>
         </div>
+
+        {spend && spend.spentUsd > 0 && (
+          <section style={{ marginBottom: '2rem' }}>
+            <div style={{ background: '#fff', border: '0.5px solid #E5E7EB', borderRadius: 10, padding: '1rem 1.1rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#0D0F1A' }}>AI spend this month</span>
+                <span style={{ fontSize: 13, color: '#6B7280', fontVariantNumeric: 'tabular-nums' }}>
+                  {formatUsd(spend.spentUsd)} of {formatUsd(spend.budgetUsd)}
+                </span>
+              </div>
+              <div style={{ height: 6, background: '#F3F4F6', borderRadius: 3, overflow: 'hidden' }}>
+                <div
+                  style={{
+                    height: '100%',
+                    width: `${Math.min(100, (spend.spentUsd / Math.max(spend.budgetUsd, 0.0001)) * 100)}%`,
+                    background: spend.remainingUsd <= 0 ? '#A4161A' : '#1A56DB',
+                    borderRadius: 3,
+                  }}
+                />
+              </div>
+              {spend.remainingUsd <= 0 && (
+                <p style={{ fontSize: 12, color: '#A4161A', marginTop: 8 }}>
+                  Budget used up — AI steps will not run until next month. Other actions are unaffected.
+                </p>
+              )}
+            </div>
+          </section>
+        )}
 
         {dead.length > 0 && (
           <section style={{ marginBottom: '2rem' }}>

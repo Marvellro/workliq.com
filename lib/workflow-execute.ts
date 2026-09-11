@@ -9,6 +9,15 @@ import {
   getOrCreateWebhookSecret,
 } from './workflow-actions'
 import { BlockedAddressError } from './safe-fetch'
+import {
+  runAIStep,
+  renderResult,
+  AIBudgetError,
+  AIConfigError,
+  AI_TASK_LABELS,
+  type AITask,
+  type DealFacts,
+} from './ai'
 import type { WorkflowRow, TriggerEvent } from './workflow-engine'
 
 // Executes exactly one workflow action, for one deal, for one event.
@@ -58,6 +67,18 @@ function fillTemplate(
     .replaceAll('{{stage}}', payload.dealStage ?? 'Unknown stage')
     .replaceAll('{{owner}}', payload.ownerName)
     .replaceAll('{{link}}', hubspotDealLink(payload.hubId, payload.dealId))
+}
+
+function describeTrigger(payload: ActionPayload): string {
+  const { event } = payload
+  switch (event.type) {
+    case 'deal_created':
+      return 'This deal was just created.'
+    case 'deal_stage_changed':
+      return `This deal just moved into the "${event.newStage}" stage.`
+    case 'deal_stale':
+      return `This deal has had no recorded activity for ${event.daysStale} days, past the ${event.thresholdDays}-day threshold the team set.`
+  }
 }
 
 function defaultSlackText(payload: ActionPayload): string {
@@ -204,6 +225,87 @@ async function runAction(
       await createNotionPage(
         { access_token: decrypt(conn.access_token), database_id: conn.database_id },
         properties
+      )
+      return
+    }
+
+    case 'ai_step': {
+      const task = workflow.action_config.ai_task as AITask | undefined
+      if (!task) throw new PermanentJobError('AI step has no task configured')
+
+      // Only these fields ever leave our infrastructure. Constructed explicitly
+      // rather than spreading the deal object, so widening the HubSpot fetch
+      // can never silently start sending more to a third party.
+      const facts: DealFacts = {
+        dealName: payload.dealName ?? 'Unnamed deal',
+        stage: payload.dealStage ?? 'Unknown',
+        owner: payload.ownerName,
+        triggerDescription: describeTrigger(payload),
+        ...(payload.event.type === 'deal_stale'
+          ? { daysSinceLastActivity: payload.event.daysStale }
+          : {}),
+      }
+
+      let text: string
+      try {
+        const result = await runAIStep({
+          customerId: payload.customerId,
+          workflowId: workflow.id,
+          task,
+          facts,
+          instructions: workflow.action_config.ai_instructions,
+        })
+        text = renderResult(result)
+      } catch (err) {
+        // Budget and configuration failures are permanent: retrying an
+        // exhausted budget four more times just burns attempts, and each retry
+        // would re-run the token count.
+        if (err instanceof AIBudgetError || err instanceof AIConfigError) {
+          throw new PermanentJobError(err.message)
+        }
+        throw err
+      }
+
+      // The AI produces text; an existing channel delivers it. Slack unless the
+      // customer chose Notion.
+      const deliverTo = workflow.action_config.deliver_to ?? 'slack_message'
+      const header = `🤖 *${AI_TASK_LABELS[task]}* — ${payload.dealName ?? 'Unnamed deal'}`
+      const link = hubspotDealLink(payload.hubId, payload.dealId)
+
+      if (deliverTo === 'notion_row') {
+        const { data: notionConn } = await supabase
+          .from('notion_connections')
+          .select('access_token, database_id')
+          .eq('customer_id', payload.customerId)
+          .maybeSingle()
+        if (!notionConn) throw new PermanentJobError('No Notion connection for this customer')
+
+        await createNotionPage(
+          { access_token: decrypt(notionConn.access_token), database_id: notionConn.database_id },
+          {
+            'Deal Name': { title: [{ text: { content: payload.dealName ?? 'Unnamed deal' } }] },
+            Stage: { select: { name: payload.dealStage ?? 'Unknown' } },
+            Owner: { rich_text: [{ text: { content: payload.ownerName } }] },
+            // Notion caps a rich_text value at 2000 characters.
+            Notes: { rich_text: [{ text: { content: text.slice(0, 2000) } }] },
+            'Flagged On': { date: { start: new Date().toISOString().split('T')[0] } },
+            'HubSpot Link': { url: link },
+            Status: { select: { name: 'New' } },
+          }
+        )
+        return
+      }
+
+      const { data: slackConn } = await supabase
+        .from('slack_connections')
+        .select('webhook_url')
+        .eq('customer_id', payload.customerId)
+        .maybeSingle()
+      if (!slackConn) throw new PermanentJobError('No Slack connection for this customer')
+
+      await sendSlackMessage(
+        decrypt(slackConn.webhook_url),
+        [header, '', text, '', `<${link}|View in HubSpot>`].join('\n')
       )
       return
     }

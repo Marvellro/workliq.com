@@ -6,7 +6,12 @@ import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit
 import { recordAudit, clientIp, userAgent } from '@/lib/audit'
 
 const TRIGGER_TYPES = ['deal_stage_changed', 'deal_created', 'deal_stale']
-const ACTION_TYPES = ['slack_message', 'notion_row', 'webhook']
+const ACTION_TYPES = ['slack_message', 'notion_row', 'webhook', 'ai_step']
+const AI_TASKS = ['summarize', 'draft_followup', 'score_lead', 'next_action']
+const AI_DELIVERY = ['slack_message', 'notion_row']
+// Free-text guidance is forwarded to the model. Bounded so a workflow cannot
+// be used to push an arbitrarily large prompt through our API key.
+const MAX_AI_INSTRUCTIONS = 500
 const CONDITION_OPERATORS = ['equals', 'not_equals', 'contains']
 // Must match the properties workflow-engine.ts's getDealPropertyValue()
 // actually knows how to read. An unrecognized property always resolves to
@@ -74,6 +79,30 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'deal_stale requires trigger_config.threshold_days' }, { status: 400 })
     }
   }
+  if (action_type === 'ai_step') {
+    if (!AI_TASKS.includes(action_config?.ai_task)) {
+      return NextResponse.json(
+        { error: `ai_step requires action_config.ai_task (${AI_TASKS.join(' | ')})` },
+        { status: 400 }
+      )
+    }
+    if (action_config?.deliver_to && !AI_DELIVERY.includes(action_config.deliver_to)) {
+      return NextResponse.json(
+        { error: `ai_step deliver_to must be one of ${AI_DELIVERY.join(' | ')}` },
+        { status: 400 }
+      )
+    }
+    const instructions = action_config?.ai_instructions
+    if (instructions !== undefined && instructions !== null) {
+      if (typeof instructions !== 'string' || instructions.length > MAX_AI_INSTRUCTIONS) {
+        return NextResponse.json(
+          { error: `ai_instructions must be text under ${MAX_AI_INSTRUCTIONS} characters` },
+          { status: 400 }
+        )
+      }
+    }
+  }
+
   if (action_type === 'webhook') {
     const url = action_config?.url
     if (typeof url !== 'string') {
