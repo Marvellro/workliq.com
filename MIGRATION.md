@@ -215,3 +215,73 @@ Only four fields, constructed explicitly in `lib/ai.ts` (`DealFacts`):
 type is deliberately explicit rather than passing a HubSpot object through, so
 widening the deal fetch later cannot silently start sending more to a third
 party. Worth stating plainly in your privacy policy before you take customers.
+
+---
+
+# Phase 4 — billing and plan limits
+
+## Already applied
+
+`010_billing.sql` is live: `subscriptions`, `stripe_events`, and the
+`claim_subscription_for_customer` / `entitlements_for_customer` functions.
+Additive only.
+
+## What you need to do
+
+**1. Add the Stripe webhook.** In the Stripe dashboard → Webhooks, add an
+endpoint:
+
+| Field | Value |
+|---|---|
+| Endpoint URL | `https://www.workliq.com/api/webhooks/stripe` |
+| Events | `checkout.session.completed`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.payment_failed` |
+
+**2. Add `STRIPE_WEBHOOK_SECRET` to Vercel** — the `whsec_...` value Stripe
+shows when you create that endpoint. It is *not* the same as your API key, and
+test-mode and live-mode endpoints have different secrets.
+
+Until it is set, the endpoint returns 500 and Stripe retries, so no event is
+lost — it just isn't applied yet.
+
+**3. Note on the Stripe account.** The Stripe account connected to this session
+was `liooasis.bigcartel`, which is a different business, so I did not touch it.
+Everything above has to be done in the Stripe account that actually owns the
+Workliq prices.
+
+## How plans resolve
+
+| Plan | Active workflows | AI budget / month | Webhook actions |
+|---|---|---|---|
+| Free | 1 | — | No |
+| Starter | 10 | $10 | Yes |
+| Growth | 50 | $50 | Yes |
+
+Limits live in `lib/plans.ts` — product decisions belong in a reviewable diff,
+not in a SQL console. What a *particular customer* is on lives in the database.
+
+Only Stripe's `active` and `trialing` statuses count as paid. `past_due`,
+`canceled`, `unpaid` and `incomplete` all fall back to Free — a subscription
+that isn't being paid for is not an entitlement. Verified against all six
+statuses.
+
+## The ordering problem this solves
+
+Checkout happens *before* sign-up: pricing → Stripe → `/onboarding` → create
+account. So the first billing webhook arrives when no customer row exists yet,
+and `customers.id` is a foreign key to `auth.users` so no placeholder can be
+invented.
+
+`subscriptions` is therefore keyed on **email**, and linked to a customer when
+that person signs in. Matching is case-insensitive — someone paying as
+`Name@Co.com` and signing up as `name@co.com` must resolve to the same account,
+or they pay and stay on Free.
+
+## To change one customer's limits by hand
+
+```sql
+update customers set ai_monthly_budget_usd = 25.00 where email = '...';
+```
+
+A hand-set budget is left alone by later billing webhooks — it only resets if
+the current value still matches a plan default. Overwriting a deliberate
+override on the next invoice would be a baffling bug to diagnose.

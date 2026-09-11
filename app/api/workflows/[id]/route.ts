@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getCustomerSession } from '@/lib/session'
 import { getSupabaseAdmin } from '@/lib/config'
 import { recordAudit, clientIp, userAgent } from '@/lib/audit'
+import { getEntitlements, checkWorkflowLimit } from '@/lib/plans'
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getCustomerSession()
@@ -11,6 +12,23 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const body = await req.json().catch(() => null)
   if (!body || typeof body.enabled !== 'boolean') {
     return NextResponse.json({ error: 'enabled (boolean) is required' }, { status: 400 })
+  }
+
+  // Enabling counts against the plan limit, not just creating.
+  //
+  // Without this, the limit is trivially bypassed: create one workflow, disable
+  // it, create another (the create check counts only *enabled* ones), then
+  // enable both. Creation and enabling are two doors into the same room, so
+  // both need the same lock.
+  if (body.enabled === true) {
+    const entitlements = await getEntitlements(session.customerId)
+    const withinLimit = await checkWorkflowLimit(session.customerId, entitlements)
+    if (!withinLimit.allowed) {
+      return NextResponse.json(
+        { error: withinLimit.reason, upgradeTo: withinLimit.upgradeTo },
+        { status: 402 }
+      )
+    }
   }
 
   const supabase = getSupabaseAdmin()

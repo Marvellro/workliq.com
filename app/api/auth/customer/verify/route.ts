@@ -8,6 +8,7 @@ import {
 } from '@/lib/config'
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit'
 import { recordAudit, clientIp, userAgent } from '@/lib/audit'
+import { getEntitlements, syncAiBudgetToPlan } from '@/lib/plans'
 
 // Exchanges an emailed OTP for a session.
 //
@@ -81,6 +82,24 @@ export async function POST(req: Request) {
   if (customerError) {
     // Don't block login over this — the row may already exist. Log and continue.
     console.error('Failed to upsert customer row:', customerError)
+  }
+
+  // Link any subscription bought under this email to the account.
+  //
+  // Checkout happens before sign-up, so the very first billing webhook arrives
+  // with no customer row to attach to. This is where the two finally meet —
+  // without it, someone pays and then sits on the free plan, which is the worst
+  // bug a billing system can have.
+  const { error: claimError } = await getSupabaseAdmin().rpc(
+    'claim_subscription_for_customer',
+    { p_customer_id: data.user.id, p_email: normalizedEmail }
+  )
+  if (claimError) {
+    console.error('Failed to claim subscription for customer:', claimError.message)
+  } else {
+    // Bring the AI budget in line with whatever they are actually paying for.
+    const entitlements = await getEntitlements(data.user.id)
+    await syncAiBudgetToPlan(data.user.id, entitlements.plan)
   }
 
   await recordAudit({

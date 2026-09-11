@@ -14,7 +14,8 @@ import { getSupabaseAdmin } from './config'
 
 export type JobKind =
   | 'workflow.action'      // execute one workflow action for one deal event
-  | 'hubspot.event'        // process one inbound webhook event
+  | 'hubspot.event'        // process one inbound HubSpot webhook event
+  | 'stripe.event'         // apply one inbound Stripe billing event
   | 'maintenance.purge'    // housekeeping
 
 export type JobRecord = {

@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { getCustomerSession } from '@/lib/session'
 import { getSupabaseAdmin } from '@/lib/config'
+import { getEntitlements } from '@/lib/plans'
 import ActivityClient from './ActivityClient'
 
 export default async function ActivityPage() {
@@ -11,7 +12,7 @@ export default async function ActivityPage() {
 
   // Rendered server-side so the page arrives populated rather than flashing an
   // empty state and filling in. The client polls from here on.
-  const [runs, queue, spend] = await Promise.all([
+  const [runs, queue, spend, entitlements, workflowCount] = await Promise.all([
     supabase
       .from('workflow_runs')
       .select('id, workflow_id, deal_id, trigger_fingerprint, status, error_message, fired_at, workflows(name, action_type)')
@@ -26,6 +27,12 @@ export default async function ActivityPage() {
       .order('created_at', { ascending: false })
       .limit(50),
     supabase.rpc('ai_spend_this_month', { p_customer_id: session.customerId }),
+    getEntitlements(session.customerId),
+    supabase
+      .from('workflows')
+      .select('id', { count: 'exact', head: true })
+      .eq('customer_id', session.customerId)
+      .eq('enabled', true),
   ])
 
   const spendRow = Array.isArray(spend.data) ? spend.data[0] : spend.data
@@ -43,6 +50,12 @@ export default async function ActivityPage() {
             }
           : null
       }
+      initialPlan={{
+        id: entitlements.plan,
+        label: entitlements.label,
+        maxWorkflows: entitlements.maxWorkflows,
+        workflowsUsed: workflowCount.count ?? 0,
+      }}
     />
   )
 }

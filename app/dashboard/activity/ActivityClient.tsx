@@ -30,10 +30,18 @@ type AISpend = {
   remainingUsd: number
 }
 
+type PlanInfo = {
+  id: string
+  label: string
+  maxWorkflows: number
+  workflowsUsed: number
+}
+
 type Props = {
   initialRuns: Run[]
   initialQueue: QueueItem[]
   initialSpend: AISpend | null
+  initialPlan: PlanInfo
 }
 
 // Matches lib/ai-pricing.ts formatUsd. Sub-cent amounts keep precision — a real
@@ -100,10 +108,11 @@ function useNow(): number {
   )
 }
 
-export default function ActivityClient({ initialRuns, initialQueue, initialSpend }: Props) {
+export default function ActivityClient({ initialRuns, initialQueue, initialSpend, initialPlan }: Props) {
   const [runs, setRuns] = useState<Run[]>(initialRuns)
   const [queue, setQueue] = useState<QueueItem[]>(initialQueue)
   const [spend, setSpend] = useState<AISpend | null>(initialSpend)
+  const [plan, setPlan] = useState<PlanInfo>(initialPlan)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const now = useNow()
@@ -115,6 +124,7 @@ export default function ActivityClient({ initialRuns, initialQueue, initialSpend
     setRuns(json.runs)
     setQueue(json.queue)
     setSpend(json.aiSpend ?? null)
+    if (json.plan) setPlan(json.plan)
   }, [])
 
   // Work moves through the queue in the background, so a static snapshot goes
@@ -165,6 +175,18 @@ export default function ActivityClient({ initialRuns, initialQueue, initialSpend
       )}
 
       <div style={{ maxWidth: 720, margin: '0 auto', padding: '2.5rem 1.5rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: '1.25rem', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 12, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', color: '#1A56DB', background: '#E7EEFC', padding: '0.25rem 0.6rem', borderRadius: 5 }}>
+            {plan.label} plan
+          </span>
+          <span style={{ fontSize: 13, color: '#6B7280', fontVariantNumeric: 'tabular-nums' }}>
+            {plan.workflowsUsed} of {plan.maxWorkflows} active workflow{plan.maxWorkflows === 1 ? '' : 's'} used
+            {plan.workflowsUsed >= plan.maxWorkflows && (
+              <> · <a href="/pricing" style={{ color: '#1A56DB', textDecoration: 'none', fontWeight: 600 }}>Upgrade</a></>
+            )}
+          </span>
+        </div>
+
         <div style={{ marginBottom: '2rem' }}>
           <h1 style={{ fontSize: 22, fontWeight: 600, color: '#0D0F1A', marginBottom: '0.4rem', letterSpacing: '-0.02em' }}>
             Activity

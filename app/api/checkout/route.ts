@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
+import { appUrl } from "@/lib/config";
 
 function getStripe() {
   return new Stripe(process.env.STRIPE_SECRET_KEY!, {
@@ -51,8 +52,8 @@ export async function POST(req: Request) {
       mode: "subscription",
       customer_email: email,
       line_items: [{ price: priceId, quantity: 1 }],
-      success_url: `https://workliq.com/onboarding?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `https://workliq.com/pricing`,
+      success_url: appUrl("/onboarding?session_id={CHECKOUT_SESSION_ID}"),
+      cancel_url: appUrl("/pricing"),
       allow_promotion_codes: true,
       subscription_data: {
         metadata: { plan, billing },

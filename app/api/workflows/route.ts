@@ -4,6 +4,7 @@ import { getSupabaseAdmin } from '@/lib/config'
 import { validateWebhookUrl, BlockedAddressError } from '@/lib/safe-fetch'
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit'
 import { recordAudit, clientIp, userAgent } from '@/lib/audit'
+import { getEntitlements, checkWorkflowLimit, checkActionAllowed } from '@/lib/plans'
 
 const TRIGGER_TYPES = ['deal_stage_changed', 'deal_created', 'deal_stale']
 const ACTION_TYPES = ['slack_message', 'notion_row', 'webhook', 'ai_step']
@@ -123,6 +124,27 @@ export async function POST(req: Request) {
       }
       throw err
     }
+  }
+
+  // Plan limits. Checked here rather than in the UI alone — the UI can be
+  // bypassed by calling the API directly, so this is the enforcement point and
+  // the UI is only the courtesy that stops someone hitting it by surprise.
+  const entitlements = await getEntitlements(session.customerId)
+
+  const actionAllowed = checkActionAllowed(action_type, entitlements)
+  if (!actionAllowed.allowed) {
+    return NextResponse.json(
+      { error: actionAllowed.reason, upgradeTo: actionAllowed.upgradeTo },
+      { status: 402 }
+    )
+  }
+
+  const withinLimit = await checkWorkflowLimit(session.customerId, entitlements)
+  if (!withinLimit.allowed) {
+    return NextResponse.json(
+      { error: withinLimit.reason, upgradeTo: withinLimit.upgradeTo },
+      { status: 402 }
+    )
   }
 
   const supabase = getSupabaseAdmin()
