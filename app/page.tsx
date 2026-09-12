@@ -40,6 +40,10 @@ function NotionLogo() {
   );
 }
 
+// Kept, unused, on purpose. These are real integrations on the roadmap, and the
+// logo bar deliberately lists only what Workliq connects to today. Deleting the
+// artwork now would just mean redrawing it later.
+/* eslint-disable @typescript-eslint/no-unused-vars */
 function GmailLogo() {
   return (
     <svg width="74" height="20" viewBox="0 0 74 20" fill="none" aria-label="Gmail">
@@ -68,28 +72,7 @@ function SalesforceLogo() {
     </svg>
   );
 }
-
-// ─── Testimonial data ─────────────────────────────────────────────────────────
-const testimonials = [
-  {
-    quote: "We replaced three separate Zapier setups with one Workliq workflow. It's been running for six weeks without a single failure. That used to be unimaginable.",
-    name: "Elena Marsh",
-    role: "VP of Operations",
-    company: "Clearline Health",
-  },
-  {
-    quote: "Our CRM was a mess of half-synced data and manual updates. Workliq cleaned it up automatically. The ROI was visible inside the first week.",
-    name: "Tom Byrd",
-    role: "Head of RevOps",
-    company: "Signalpath",
-  },
-  {
-    quote: "I kept saying we'd automate 'eventually'. Workliq made eventually happen in a Tuesday afternoon. We're saving at least 12 hours a week across the team.",
-    name: "Priya Sharma",
-    role: "Founder & CEO",
-    company: "Loopback Studio",
-  },
-];
+/* eslint-enable @typescript-eslint/no-unused-vars */
 
 export default function Home() {
   const [name, setName] = useState("");
@@ -98,7 +81,6 @@ export default function Home() {
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [count] = useState(247);
 
   // Second CTA form
   const [ctaEmail, setCtaEmail] = useState("");
@@ -256,7 +238,7 @@ export default function Home() {
                     </div>
                   ))}
                 </div>
-                <span>{count} people on the waitlist</span>
+                <span>Early access — we onboard in small batches</span>
               </div>
             </div>
           ) : (
@@ -274,22 +256,19 @@ export default function Home() {
       {/* ── LOGO BAR ── */}
       <section style={{ borderTop: "0.5px solid #F0F1F3", borderBottom: "0.5px solid #F0F1F3", padding: "1.75rem 0", marginBottom: "0.5rem" }}>
         <div style={{ fontSize: 10, textAlign: "center", color: "#9CA3AF", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: "1.25rem", fontWeight: 500 }}>
-          Trusted by teams using
+          Connects with
         </div>
         <div style={{ display: "flex", gap: 24, alignItems: "center", justifyContent: "center", flexWrap: "wrap", opacity: 0.7 }}>
           <SlackLogo />
           <HubSpotLogo />
           <NotionLogo />
-          <GmailLogo />
-          <StripeLogo />
-          <SalesforceLogo />
         </div>
       </section>
 
       {/* ── TICKER ── */}
       <div style={{ overflow: "hidden", padding: "9px 0", marginBottom: "3rem" }}>
         <div style={{ display: "inline-block", whiteSpace: "nowrap", animation: "ticker 20s linear infinite", fontFamily: "monospace", fontSize: 11, color: "#9CA3AF", letterSpacing: "0.04em" }}>
-          ✦ Lead enrichment &nbsp;&nbsp; ✦ Support triage &nbsp;&nbsp; ✦ CRM sync &nbsp;&nbsp; ✦ Invoice extraction &nbsp;&nbsp; ✦ Ops reporting &nbsp;&nbsp; ✦ Deal alerts &nbsp;&nbsp; ✦ Onboarding flows &nbsp;&nbsp; ✦ Ticket routing &nbsp;&nbsp; ✦ Weekly digests &nbsp;&nbsp; ✦ Lead enrichment &nbsp;&nbsp; ✦ Support triage &nbsp;&nbsp; ✦ CRM sync &nbsp;&nbsp; ✦ Invoice extraction &nbsp;&nbsp;
+          ✦ Stale deal alerts &nbsp;&nbsp; ✦ Stage-change notifications &nbsp;&nbsp; ✦ AI deal summaries &nbsp;&nbsp; ✦ Drafted follow-ups &nbsp;&nbsp; ✦ Notion logging &nbsp;&nbsp; ✦ Custom webhooks &nbsp;&nbsp; ✦ Stale deal alerts &nbsp;&nbsp; ✦ Stage-change notifications &nbsp;&nbsp; ✦ AI deal summaries &nbsp;&nbsp; ✦ Drafted follow-ups &nbsp;&nbsp; ✦ Notion logging &nbsp;&nbsp; ✦ Custom webhooks &nbsp;&nbsp;
         </div>
       </div>
 
@@ -301,10 +280,10 @@ export default function Home() {
         </h2>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }} className="feature-grid">
           {[
-            { icon: "⚡", title: "Instant integrations", desc: "Connect Slack, HubSpot, Notion, Gmail and 200+ tools in minutes — OAuth, no code." },
-            { icon: "🤖", title: "AI agents", desc: "Agents that understand context, make decisions, and complete multi-step tasks on their own." },
-            { icon: "📊", title: "Live monitoring", desc: "Every automation run in real time — full audit trail, human override always available." },
-            { icon: "🔒", title: "Enterprise security", desc: "SOC 2 ready, SSO, SAML, and audit logs built in. Your data never trains our models." },
+            { icon: "⚡", title: "Three integrations, done properly", desc: "HubSpot, Slack and Notion, connected by OAuth in about two minutes. No API keys to paste, no code, no engineer." },
+            { icon: "🤖", title: "AI where it earns its place", desc: "Summarise a deal, draft the follow-up, score how urgent it is, or get the single next action — posted straight into Slack." },
+            { icon: "📊", title: "Every run, visible", desc: "What each workflow did, what is still queued, and anything that gave up — with one-click replay." },
+            { icon: "🔒", title: "Security you can verify", desc: "Every credential encrypted with AES-256-GCM before it reaches the database. Signed webhooks, an append-only audit trail, and your data never trains a model." },
           ].map((f, i) => (
             <div key={i} style={{ background: "#fff", border: "0.5px solid #E5E7EB", borderRadius: 14, padding: "16px 16px 14px" }}>
               <div style={{ width: 34, height: 34, background: "#EEF4FF", borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 17, marginBottom: 12 }}>{f.icon}</div>
@@ -318,18 +297,18 @@ export default function Home() {
       {/* ── SOCIAL PROOF ── */}
       <section style={{ marginBottom: "3rem" }}>
         <div style={{ textAlign: "center", marginBottom: "1.75rem" }}>
-          <div style={{ fontSize: 10, fontWeight: 600, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>Social proof</div>
+          <div style={{ fontSize: 10, fontWeight: 600, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>Reliability</div>
           <h2 style={{ fontSize: "clamp(20px, 3.5vw, 26px)", fontWeight: 500, color: "#0D0F1A", letterSpacing: "-0.025em", lineHeight: 1.2 }}>
-            Join 247+ teams automating<br />their workflows with Workliq
+            Built to keep running<br />when something goes wrong
           </h2>
         </div>
 
         {/* Metric cards */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", gap: 10, marginBottom: 16 }} className="metrics-grid">
           {[
-            { value: "47k+", label: "automation runs / month", color: "#1A56DB" },
-            { value: "98.1%", label: "workflow success rate", color: "#0F6E56" },
-            { value: "4 min", label: "average setup time", color: "#6366F1" },
+            { value: "Signed", label: "every outbound webhook", color: "#1A56DB" },
+            { value: "Replayable", label: "any delivery that gave up", color: "#0F6E56" },
+            { value: "Encrypted", label: "every stored credential", color: "#6366F1" },
           ].map((m, i) => (
             <div key={i} style={{ background: "#F9FAFB", border: "0.5px solid #F0F1F3", borderRadius: 12, padding: "16px 14px", textAlign: "center" }}>
               <div style={{ fontSize: 28, fontWeight: 700, color: m.color, marginBottom: 4, letterSpacing: "-0.04em" }}>{m.value}</div>
@@ -338,46 +317,6 @@ export default function Home() {
           ))}
         </div>
 
-        {/* Ops-specific testimonials */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {[
-            {
-              initials: "DC",
-              bg: "#1A56DB",
-              name: "David Chen",
-              role: "Director of Operations",
-              company: "Prism Analytics",
-              quote: "We were spending 14 hours a week on CRM hygiene alone. Workliq cut that to zero. Our ops team now focuses on strategy, not data entry.",
-            },
-            {
-              initials: "NV",
-              bg: "#6366F1",
-              name: "Natasha Voss",
-              role: "RevOps Lead",
-              company: "Helix SaaS",
-              quote: "I evaluated six tools before Workliq. Nothing else connected HubSpot, Notion, and Slack the way we needed without custom code. Setup took one afternoon.",
-            },
-            {
-              initials: "MW",
-              bg: "#0D0F1A",
-              name: "Marcus Webb",
-              role: "Founder",
-              company: "Clearfield Studio",
-              quote: "Running a small team means every hour counts. Workliq now handles our client onboarding, invoicing follow-ups, and ops reporting — completely automatically.",
-            },
-          ].map((t, i) => (
-            <div key={i} style={{ background: "#fff", border: "0.5px solid #E5E7EB", borderRadius: 12, padding: "16px 18px", display: "flex", gap: 14, alignItems: "flex-start" }}>
-              <div style={{ width: 38, height: 38, borderRadius: "50%", background: t.bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: "#fff", flexShrink: 0 }}>
-                {t.initials}
-              </div>
-              <div>
-                <p style={{ fontSize: 13, color: "#374151", lineHeight: 1.65, margin: "0 0 10px", fontStyle: "italic" }}>&ldquo;{t.quote}&rdquo;</p>
-                <div style={{ fontSize: 12, fontWeight: 600, color: "#0D0F1A", letterSpacing: "-0.01em" }}>{t.name}</div>
-                <div style={{ fontSize: 11, color: "#6B7280" }}>{t.role}, {t.company}</div>
-              </div>
-            </div>
-          ))}
-        </div>
       </section>
 
       {/* ── HOW IT WORKS ── */}
@@ -392,7 +331,7 @@ export default function Home() {
               n: "1",
               emoji: "🔌",
               title: "Connect your tools",
-              desc: "OAuth one-click integrations with Slack, HubSpot, Notion, Gmail, Stripe, and 200+ more. No API keys. No engineers. No reading docs.",
+              desc: "OAuth connections to HubSpot, Slack and Notion. No API keys. No engineers. No reading docs.",
             },
             {
               n: "2",
@@ -403,8 +342,8 @@ export default function Home() {
             {
               n: "3",
               emoji: "🤖",
-              title: "AI runs 24/7",
-              desc: "Your workflow goes live instantly. AI agents handle every trigger, monitor for failures, and escalate to a human only when genuinely needed.",
+              title: "It runs from here",
+              desc: "HubSpot pushes changes the moment they happen. Failed deliveries retry on their own, and anything that gives up is waiting in your activity log with a Try again button.",
             },
           ].map((step, i) => (
             <div key={i} style={{ display: "flex", gap: 18, position: "relative" }}>
@@ -452,35 +391,10 @@ export default function Home() {
       {/* ── STATS ── */}
       <section style={{ marginBottom: "3rem" }}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", gap: 10 }} className="stats-grid">
-          {[["214", "integrations"], ["48", "workflow templates"], ["4 min", "avg setup time"]].map(([v, l], i) => (
+          {[["AES-256", "credential encryption"], ["5×", "retries before anything is dropped"], ["Seconds", "from deal change to Slack"]].map(([v, l], i) => (
             <div key={i} style={{ background: "#F9FAFB", border: "0.5px solid #F0F1F3", borderRadius: 10, padding: "14px 12px", textAlign: "center" }}>
               <div style={{ fontSize: 26, fontWeight: 600, color: "#0D0F1A", marginBottom: 4, letterSpacing: "-0.03em" }}>{v}</div>
               <div style={{ fontSize: 11, color: "#9CA3AF" }}>{l}</div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* ── TESTIMONIALS ── */}
-      <section style={{ marginBottom: "3rem" }}>
-        <div style={{ fontSize: 10, fontWeight: 600, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "0.75rem" }}>What teams say</div>
-        <h2 style={{ fontSize: "clamp(20px, 3.5vw, 26px)", fontWeight: 500, color: "#0D0F1A", letterSpacing: "-0.02em", marginBottom: "1.5rem", lineHeight: 1.25 }}>
-          Real workflows.<br />Real results.
-        </h2>
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {testimonials.map((t, i) => (
-            <div key={i} style={{ background: "#fff", border: "0.5px solid #E5E7EB", borderRadius: 14, padding: "20px 20px 18px" }}>
-              <div style={{ fontSize: 20, color: "#1A56DB", marginBottom: 10, lineHeight: 1 }}>&ldquo;</div>
-              <p style={{ fontSize: 14, color: "#374151", lineHeight: 1.7, margin: "0 0 14px", fontStyle: "italic" }}>{t.quote}</p>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <div style={{ width: 32, height: 32, borderRadius: "50%", background: ["#1A56DB", "#6366F1", "#0D0F1A"][i], display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: "#fff", flexShrink: 0 }}>
-                  {t.name.split(" ").map(n => n[0]).join("")}
-                </div>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: "#0D0F1A", letterSpacing: "-0.01em" }}>{t.name}</div>
-                  <div style={{ fontSize: 11, color: "#6B7280" }}>{t.role}, {t.company}</div>
-                </div>
-              </div>
             </div>
           ))}
         </div>
@@ -495,7 +409,7 @@ export default function Home() {
           Ready to automate<br />your workflows?
         </h2>
         <p style={{ fontSize: 13, color: "#6B7280", lineHeight: 1.6, marginBottom: "1.5rem", maxWidth: 360, margin: "0 auto 1.5rem" }}>
-          Join {count}+ teams who are replacing manual work with AI that runs while they sleep.
+          Replace the manual CRM work your team does every week with automation you can actually audit.
         </p>
 
         {!ctaSubmitted ? (

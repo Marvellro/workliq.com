@@ -10,15 +10,12 @@ If you do not agree to these Terms, you may not use the Service. We reserve the 
     },
     {
       title: "2. Description of Service",
-      content: `Workliq is an AI-powered workflow automation platform that allows businesses to connect software tools, build automated workflows, deploy AI agents, and manage operational processes. The Service includes:
+      content: `Workliq is a workflow automation platform that allows businesses to connect software tools, build automated workflows, and optionally apply AI to the records those workflows act on. The Service includes:
 
-• A no-code workflow builder with AI step capabilities
-• AI agents for autonomous task execution
-• Integration connections to third-party software tools
-• A template library of pre-built workflow automations
-• Analytics, monitoring, and reporting dashboards
-• A white-label reseller program for agency partners
-• A public API for programmatic access`
+• A no-code workflow builder with optional AI steps
+• AI steps that summarise a deal, draft a follow-up, score urgency, or recommend a next action
+• OAuth connections to HubSpot, Slack and Notion
+• An activity log showing every action taken, retried, or abandoned, with replay`
     },
     {
       title: "3. Account Registration",
@@ -49,7 +46,7 @@ You agree not to use the Service to:
 • Engage in spamming, phishing, or unsolicited mass communications
 • Scrape, crawl, or harvest data from third-party services in violation of their terms
 • Reverse engineer, decompile, or disassemble any part of the Service
-• Resell or sublicense the Service except under our authorised white-label programme
+• Resell or sublicense the Service without our prior written permission
 • Use the Service in any way that could damage, overburden, or impair our infrastructure`
     },
     {

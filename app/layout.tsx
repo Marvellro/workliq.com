@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Workliq — AI workflow automation",
-  description: "Workliq connects your tools and replaces manual, repetitive work with AI agents that run 24/7. No engineers, no broken Zapier workflows.",
+  description: "Workliq keeps HubSpot, Slack and Notion in sync — automating follow-ups, catching stale deals, and handling handoffs, so your CRM data is something you can finally trust.",
 };
 
 export default function RootLayout({

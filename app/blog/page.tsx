@@ -77,7 +77,7 @@ export default function BlogIndex() {
       <div style={{ background: "#F9FAFB", border: "0.5px solid #E5E7EB", borderRadius: 14, padding: "24px", marginBottom: "2.5rem", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
         <div>
           <div style={{ fontSize: 15, fontWeight: 600, color: "#0D0F1A", marginBottom: 4, letterSpacing: "-0.01em" }}>Ready to automate your ops?</div>
-          <div style={{ fontSize: 13, color: "#6B7280", lineHeight: 1.5 }}>Join 247+ teams using Workliq to eliminate manual work.</div>
+          <div style={{ fontSize: 13, color: "#6B7280", lineHeight: 1.5 }}>Use Workliq to eliminate manual work.</div>
         </div>
         <a href="/" style={{ fontSize: 13, padding: "10px 18px", borderRadius: 9, background: "#1A56DB", color: "#fff", textDecoration: "none", fontWeight: 600, whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", minHeight: 44 }}>
           Join the waitlist →

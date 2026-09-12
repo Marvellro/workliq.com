@@ -77,7 +77,7 @@ export const posts: BlogPost[] = [
     content: `
 <p>Revenue Operations is one of the highest-leverage functions in a modern SaaS company. RevOps teams are responsible for the tools, processes, and data that let sales, marketing, and customer success work efficiently. They're also, almost universally, drowning in manual work.</p>
 
-<p>Across 200+ RevOps practitioners, the average RevOps professional spends 15+ hours per week on tasks that are entirely automatable. That's more than a third of the working week on work that adds zero strategic value. Here's exactly where those hours go — and how AI automation reclaims them.</p>
+<p>Ask any RevOps lead where their week goes and you tend to get the same answer: a large share of it on work nobody chose to do by hand. That's more than a third of the working week on work that adds zero strategic value. Here's exactly where those hours go — and how AI automation reclaims them.</p>
 
 <h2>CRM data hygiene: 4–5 hours/week</h2>
 

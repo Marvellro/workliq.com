@@ -36,7 +36,7 @@ Workliq requests read access to your deals data so it can trigger workflows base
 • Actions — what happens next, such as sending a Slack message or updating a record
 • Conditions — optional logic to branch your workflow based on data
 
-You can build a workflow visually from the Workflows tab, or start from one of our templates.`
+You can build a workflow visually from the Workflows tab.`
     },
     {
       title: "4. Managing Integrations",

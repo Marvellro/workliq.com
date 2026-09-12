@@ -3,7 +3,7 @@
 export default function About() {
   const values = [
     { icon: "⚡", title: "Automation should be effortless", desc: "We believe any business — regardless of technical ability — should be able to automate their most painful workflows in minutes, not months." },
-    { icon: "🔍", title: "Transparency by default", desc: "Every automation run is logged, auditable, and reversible. We build trust by showing you exactly what our AI agents are doing on your behalf." },
+    { icon: "🔍", title: "Transparency by default", desc: "Every automation run is logged, auditable, and reversible. We build trust by showing you exactly what every workflow did on your behalf, and what it failed to do." },
     { icon: "🤝", title: "Built for operators", desc: "We design for the VP of Ops, the RevOps lead, the Chief of Staff — the people who actually run businesses and don't have time for tools that need babysitting." },
     { icon: "🌍", title: "Your data stays yours", desc: "We never use your data to train our models. Your workflows, your customers, and your processes belong to you — full stop." },
   ];
@@ -11,10 +11,8 @@ export default function About() {
   const milestones = [
     { date: "Jan 2026", event: "Workliq founded" },
     { date: "Feb 2026", event: "First prototype built" },
-    { date: "Mar 2026", event: "First paying customer" },
-    { date: "Apr 2026", event: "214 integrations live" },
-    { date: "May 2026", event: "White-label programme launched" },
     { date: "Jun 2026", event: "workliq.com goes live" },
+    { date: "Sep 2026", event: "Credential encryption, real-time HubSpot events, billing" },
   ];
 
   return (
@@ -66,7 +64,7 @@ export default function About() {
             The tools that existed were either too simple (Zapier breaks the moment anything gets complex) or too expensive to build (a custom automation platform costs $300k+ and takes 12–18 months). There was nothing in the middle — nothing that gave a 500-person SaaS company the same automation capabilities as a company with a 10-person engineering team.
           </p>
           <p style={{ marginBottom: 16 }}>
-            So we built Workliq. A full AI automation platform — workflow builder, AI agents, 214 integrations, white-label reseller programme, public API — designed to be deployed in days, not months, and operated by anyone, not just engineers.
+            So we built Workliq. A workflow builder with optional AI steps, wired into HubSpot, Slack and Notion — designed to be set up in an afternoon by the person who actually feels the problem, not by an engineering team.
           </p>
           <p>
             We launched in 2026, found our first customer immediately, and have been building in public ever since. We&apos;re based in Stockholm and building for the world.
@@ -132,26 +130,6 @@ export default function About() {
           <div style={{ fontSize: 12, color: "#9CA3AF", fontStyle: "italic", borderTop: "0.5px solid #E5E7EB", paddingTop: 12 }}>
             We&apos;re a small, focused team building in Stockholm, Sweden. We&apos;re always open to meeting exceptional people — reach out at hello@workliq.com.
           </div>
-        </div>
-      </div>
-
-      {/* STATS */}
-      <div style={{ marginBottom: "3rem" }}>
-        <div style={{ fontSize: 10, fontWeight: 600, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 14 }}>By the numbers</div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", gap: 10 }} className="about-stats-grid">
-          {[
-            ["214", "integrations"],
-            ["48", "workflow templates"],
-            ["14", "product surfaces built"],
-            ["24", "customers"],
-            ["47k+", "automation runs/mo"],
-            ["4 days", "avg time to go live"],
-          ].map(([v, l], i) => (
-            <div key={i} style={{ background: "#fff", border: "0.5px solid #E5E7EB", borderRadius: 10, padding: "14px", textAlign: "center" }}>
-              <div style={{ fontSize: 22, fontWeight: 600, color: "#0D0F1A", marginBottom: 3, letterSpacing: "-0.02em" }}>{v}</div>
-              <div style={{ fontSize: 11, color: "#9CA3AF" }}>{l}</div>
-            </div>
-          ))}
         </div>
       </div>
 

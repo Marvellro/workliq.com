@@ -89,7 +89,7 @@ export default async function BlogPost({
       <div style={{ background: "#0D0F1A", borderRadius: 16, padding: "28px 28px", marginBottom: "2.5rem", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20, flexWrap: "wrap" }}>
         <div>
           <div style={{ fontSize: 16, fontWeight: 600, color: "#F0F2EE", marginBottom: 6, letterSpacing: "-0.01em" }}>Ready to automate your workflows?</div>
-          <div style={{ fontSize: 13, color: "#6B7280", lineHeight: 1.55 }}>Join 247+ teams using Workliq to replace manual ops.</div>
+          <div style={{ fontSize: 13, color: "#6B7280", lineHeight: 1.55 }}>Use Workliq to replace manual ops.</div>
         </div>
         <a href="/" style={{ fontSize: 13, padding: "11px 20px", borderRadius: 9, background: "#1A56DB", color: "#fff", textDecoration: "none", fontWeight: 600, whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", minHeight: 44 }}>
           Join the waitlist →

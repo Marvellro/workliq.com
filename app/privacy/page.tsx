@@ -113,9 +113,9 @@ You can control cookie settings through your browser. Note that disabling essent
       content: `We implement appropriate technical and organisational measures to protect your personal data:
 
 • Encryption of data in transit (TLS 1.2+) and at rest (AES-256)
-• Role-based access controls limiting employee access to personal data
-• Regular security audits and vulnerability assessments
-• SOC 2 Type II compliance programme (in progress)
+• Third-party credentials (HubSpot, Slack, Notion) encrypted with AES-256-GCM at the application layer, so they cannot be read from the database alone
+• Row-level access controls restricting each account to its own data
+• An append-only audit log of security-relevant events
 • Incident response procedures with breach notification within 72 hours of discovery
 
 Despite these measures, no transmission over the internet is completely secure. If you believe your account has been compromised, please contact us immediately at legal@workliq.com.`

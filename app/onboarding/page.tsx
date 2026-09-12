@@ -120,7 +120,7 @@ export default async function OnboardingPage({
       <section style={{ paddingBottom: "3rem" }}>
         <h2 style={{ fontSize: 15, fontWeight: 600, color: "#0D0F1A", marginBottom: "1rem", letterSpacing: "-0.01em" }}>What happens next</h2>
         {[
-          { step: "1", title: "Connect your tools", body: "Link HubSpot, Slack, Notion, or any of your 214 supported integrations." },
+          { step: "1", title: "Connect your tools", body: "Link HubSpot, Slack and Notion." },
           { step: "2", title: "Build your first workflow", body: "Start from a template, like CRM follow-up reminders or stale deal alerts." },
           { step: "3", title: "Turn it on", body: "Workliq runs in the background from here, 24/7, with no further setup." },
         ].map((item) => (
