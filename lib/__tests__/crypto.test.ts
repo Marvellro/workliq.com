@@ -90,18 +90,36 @@ describe('decrypt tamper detection', () => {
   })
 })
 
-describe('decrypt migration path', () => {
-  it('passes through legacy plaintext unchanged', () => {
-    // Rows written before encryption shipped are still plaintext. The live
-    // cron must keep working while the backfill runs.
-    expect(decrypt('https://example.invalid/EXAMPLE-webhook-path')).toBe(
-      'https://example.invalid/EXAMPLE-webhook-path'
+describe('decrypt rejects anything unencrypted', () => {
+  // The backfill is complete — every stored credential is an envelope — so
+  // plaintext reaching decrypt() now means a bug wrote an unencrypted
+  // credential. That must stop the request rather than be used silently.
+
+  it('throws on plaintext rather than passing it through', () => {
+    expect(() => decrypt('https://example.invalid/EXAMPLE-webhook-path')).toThrow(
+      /unencrypted value/
     )
   })
 
   it('does not mistake arbitrary colon-separated text for an envelope', () => {
     expect(isEncrypted('not:an:envelope:value')).toBe(false)
-    expect(decrypt('not:an:envelope:value')).toBe('not:an:envelope:value')
+    expect(() => decrypt('not:an:envelope:value')).toThrow(/unencrypted value/)
+  })
+
+  it('throws on an empty value', () => {
+    expect(() => decrypt('')).toThrow(/unencrypted value/)
+  })
+
+  it('never puts the rejected value in the error message', () => {
+    // This message lands in logs, and the value being rejected may well be a
+    // live credential.
+    const secret = 'EXAMPLE-would-be-a-real-token'
+    try {
+      decrypt(secret)
+      throw new Error('should have thrown')
+    } catch (err) {
+      expect((err as Error).message).not.toContain(secret)
+    }
   })
 })
 

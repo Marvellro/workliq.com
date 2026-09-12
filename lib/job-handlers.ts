@@ -3,7 +3,14 @@ import { registerHandler, enqueue, PermanentJobError, type JobRecord } from './j
 import { executeWorkflowAction, isActionPayload, type ActionPayload } from './workflow-execute'
 import { workflowMatchesCondition, type WorkflowRow, type TriggerEvent } from './workflow-engine'
 import { getValidHubSpotToken } from './hubspot'
-import { syncAiBudgetToPlan, planFromId, isPaidStatus } from './plans'
+import {
+  syncAiBudgetToPlan,
+  planFromId,
+  isPaidStatus,
+  planForPriceId,
+  hasPriceTable,
+  type PlanId,
+} from './plans'
 import type Stripe from 'stripe'
 import { fetchDeal, fetchOwnerMap } from './hubspot-deals'
 
@@ -259,6 +266,56 @@ async function handleStripeEvent(job: JobRecord): Promise<void> {
     .eq('id', eventId)
 }
 
+/**
+ * Decides which plan a subscription grants.
+ *
+ * The price the customer is actually billed for wins over
+ * `subscription.metadata`, which the checkout route writes once and never
+ * updates. A Billing Portal upgrade changes the price and leaves the metadata
+ * stale, so trusting metadata would mean charging someone for Growth while
+ * giving them Starter.
+ *
+ * Metadata remains the fallback for subscriptions created through our own
+ * checkout before this existed, and for the case where the price environment
+ * variables are not configured at all.
+ */
+function resolvePlan(subscription: Stripe.Subscription): {
+  plan: PlanId
+  billingPeriod: string | null
+} {
+  // A subscription can carry several items. Take the first one that matches a
+  // price we recognise, rather than blindly the first item — an added one-off
+  // or add-on line should not decide the plan.
+  for (const item of subscription.items?.data ?? []) {
+    const mapped = planForPriceId(item.price?.id)
+    if (mapped) return { plan: mapped.plan, billingPeriod: mapped.billingPeriod }
+  }
+
+  const metadataPlan = subscription.metadata?.plan
+  const priceIds = (subscription.items?.data ?? []).map((i) => i.price?.id).filter(Boolean)
+
+  if (!hasPriceTable()) {
+    // No STRIPE_PRICE_* variables are set at all, so nothing could have matched.
+    console.error(
+      '[stripe.event] no STRIPE_PRICE_* variables configured — falling back to subscription metadata. ' +
+        'Set them so plan changes made in the Stripe Billing Portal are honoured.'
+    )
+  } else if (priceIds.length > 0) {
+    // Configured, but this price is not one of ours. Someone is paying for
+    // something we do not recognise; that must be visible, not silently free.
+    console.error(
+      `[stripe.event] subscription ${subscription.id} uses unrecognised price(s) ` +
+        `${priceIds.join(', ')} — check STRIPE_PRICE_* match the account these were bought in. ` +
+        `Falling back to metadata (${metadataPlan ?? 'none'}).`
+    )
+  }
+
+  return {
+    plan: planFromId(metadataPlan),
+    billingPeriod: subscription.metadata?.billing ?? null,
+  }
+}
+
 async function applySubscription(
   subscription: Stripe.Subscription,
   eventType: string
@@ -300,7 +357,7 @@ async function applySubscription(
   // 'deleted' means the subscription is gone; record it as canceled so the
   // entitlement lookup stops counting it.
   const status = eventType === 'customer.subscription.deleted' ? 'canceled' : subscription.status
-  const plan = planFromId(subscription.metadata?.plan)
+  const { plan, billingPeriod } = resolvePlan(subscription)
   const periodEndSeconds = (subscription as unknown as { current_period_end?: number })
     .current_period_end
 
@@ -312,7 +369,7 @@ async function applySubscription(
         stripe_customer_id: stripeCustomerId,
         stripe_subscription_id: subscription.id,
         plan,
-        billing_period: subscription.metadata?.billing ?? null,
+        billing_period: billingPeriod,
         status,
         current_period_end: periodEndSeconds
           ? new Date(periodEndSeconds * 1000).toISOString()

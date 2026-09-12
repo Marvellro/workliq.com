@@ -1,5 +1,12 @@
-import { describe, it, expect } from 'vitest'
-import { PLANS, planFromId, isPaidStatus, checkActionAllowed } from '../plans'
+import { describe, it, expect, afterEach, vi } from 'vitest'
+import {
+  PLANS,
+  planFromId,
+  isPaidStatus,
+  checkActionAllowed,
+  planForPriceId,
+  hasPriceTable,
+} from '../plans'
 
 // Pure entitlement logic. The database-backed parts (getEntitlements,
 // checkWorkflowLimit) are verified directly against Postgres instead.
@@ -100,5 +107,72 @@ describe('checkActionAllowed', () => {
     if (!result.allowed) {
       expect(result.reason).toMatch(/Starter/)
     }
+  })
+})
+
+
+describe('planForPriceId', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  function configurePrices() {
+    vi.stubEnv('STRIPE_PRICE_STARTER_MONTHLY', 'price_starter_m')
+    vi.stubEnv('STRIPE_PRICE_STARTER_ANNUAL', 'price_starter_a')
+    vi.stubEnv('STRIPE_PRICE_GROWTH_MONTHLY', 'price_growth_m')
+    vi.stubEnv('STRIPE_PRICE_GROWTH_ANNUAL', 'price_growth_a')
+  }
+
+  it('maps each configured price to its plan and period', () => {
+    configurePrices()
+    expect(planForPriceId('price_starter_m')).toEqual({ plan: 'starter', billingPeriod: 'monthly' })
+    expect(planForPriceId('price_starter_a')).toEqual({ plan: 'starter', billingPeriod: 'annual' })
+    expect(planForPriceId('price_growth_m')).toEqual({ plan: 'growth', billingPeriod: 'monthly' })
+    expect(planForPriceId('price_growth_a')).toEqual({ plan: 'growth', billingPeriod: 'annual' })
+  })
+
+  it('returns null for an unrecognised price', () => {
+    // Must be null, never a default. Someone paying for a price we do not know
+    // about is a problem to surface, not a reason to quietly assume free.
+    configurePrices()
+    expect(planForPriceId('price_from_another_account')).toBeNull()
+  })
+
+  it('returns null for a missing price id', () => {
+    configurePrices()
+    expect(planForPriceId(null)).toBeNull()
+    expect(planForPriceId(undefined)).toBeNull()
+    expect(planForPriceId('')).toBeNull()
+  })
+
+  it('does not match when the variables are unset', () => {
+    // An unset variable is undefined; an undefined price id must not collide
+    // with it and silently grant a plan.
+    vi.stubEnv('STRIPE_PRICE_STARTER_MONTHLY', '')
+    vi.stubEnv('STRIPE_PRICE_STARTER_ANNUAL', '')
+    vi.stubEnv('STRIPE_PRICE_GROWTH_MONTHLY', '')
+    vi.stubEnv('STRIPE_PRICE_GROWTH_ANNUAL', '')
+    expect(hasPriceTable()).toBe(false)
+    expect(planForPriceId(undefined)).toBeNull()
+    expect(planForPriceId('')).toBeNull()
+  })
+
+  it('works with only some prices configured', () => {
+    // Half-configured is a realistic state mid-migration to live mode.
+    vi.stubEnv('STRIPE_PRICE_STARTER_MONTHLY', 'price_only_one')
+    vi.stubEnv('STRIPE_PRICE_STARTER_ANNUAL', '')
+    vi.stubEnv('STRIPE_PRICE_GROWTH_MONTHLY', '')
+    vi.stubEnv('STRIPE_PRICE_GROWTH_ANNUAL', '')
+    expect(hasPriceTable()).toBe(true)
+    expect(planForPriceId('price_only_one')).toEqual({ plan: 'starter', billingPeriod: 'monthly' })
+    expect(planForPriceId('price_growth_m')).toBeNull()
+  })
+
+  it('reads the environment at call time, not at import', () => {
+    // The module must not snapshot these at import: a server process that
+    // starts before billing is configured would then never see the prices.
+    expect(planForPriceId('price_late')).toBeNull()
+    vi.stubEnv('STRIPE_PRICE_GROWTH_ANNUAL', 'price_late')
+    expect(planForPriceId('price_late')).toEqual({ plan: 'growth', billingPeriod: 'annual' })
   })
 })

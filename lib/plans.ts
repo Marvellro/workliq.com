@@ -65,6 +65,58 @@ export function planFromId(value: string | null | undefined): PlanId {
   return 'free'
 }
 
+// ── Price IDs → plans ────────────────────────────────────────────────────────
+
+export type BillingPeriod = 'monthly' | 'annual'
+export type PriceMapping = { plan: PlanId; billingPeriod: BillingPeriod }
+
+// Built from the same four environment variables the checkout route charges
+// against, rather than a second hand-maintained list. A separate list would
+// eventually disagree with what customers are actually billed, and the symptom
+// would be someone paying for one plan and receiving another.
+//
+// Read lazily: these are server-only vars, and a module that throws at import
+// time because billing isn't configured would take down pages that have nothing
+// to do with billing.
+function priceTable(): { id: string; plan: PlanId; billingPeriod: BillingPeriod }[] {
+  const entries: [string | undefined, PlanId, BillingPeriod][] = [
+    [process.env.STRIPE_PRICE_STARTER_MONTHLY, 'starter', 'monthly'],
+    [process.env.STRIPE_PRICE_STARTER_ANNUAL, 'starter', 'annual'],
+    [process.env.STRIPE_PRICE_GROWTH_MONTHLY, 'growth', 'monthly'],
+    [process.env.STRIPE_PRICE_GROWTH_ANNUAL, 'growth', 'annual'],
+  ]
+  return entries
+    .filter((e): e is [string, PlanId, BillingPeriod] => Boolean(e[0]))
+    .map(([id, plan, billingPeriod]) => ({ id, plan, billingPeriod }))
+}
+
+/**
+ * Resolves a Stripe price ID to the plan it grants.
+ *
+ * This is the authoritative mapping. The plan used to be read only from
+ * `subscription.metadata.plan`, which the checkout route sets — and that breaks
+ * in two ways that both end with someone paying for the wrong thing:
+ *
+ *   • A customer upgrading Starter → Growth in Stripe's Billing Portal changes
+ *     the *price*. The metadata, written once at checkout, does not change. They
+ *     would pay for Growth and keep Starter's limits.
+ *   • A subscription created in the Stripe dashboard, from a payment link, or
+ *     migrated in has no metadata at all, and would resolve to free.
+ *
+ * Returns null when the price is unrecognised, which callers must treat as a
+ * problem to report rather than a reason to assume free.
+ */
+export function planForPriceId(priceId: string | null | undefined): PriceMapping | null {
+  if (!priceId) return null
+  const match = priceTable().find((p) => p.id === priceId)
+  return match ? { plan: match.plan, billingPeriod: match.billingPeriod } : null
+}
+
+/** True when at least one price ID is configured — used to warn on misconfiguration. */
+export function hasPriceTable(): boolean {
+  return priceTable().length > 0
+}
+
 /**
  * Resolves what an account is currently entitled to.
  *

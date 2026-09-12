@@ -45,20 +45,15 @@ Merge and let Vercel deploy. At this point:
 - Existing plaintext credentials still read fine (passthrough).
 - Nothing is broken; the database simply holds a mix.
 
-## 4. Run the backfill
+## 4. Run the backfill — DONE (2026-09-12)
 
-Dry run first — it writes nothing and round-trip-verifies every value before it
-would touch anything:
+All 5 plaintext credentials across 3 rows were encrypted. Re-running reports
+`0 plaintext value(s) found`, and every column now begins `v1:`.
+
+The script stays idempotent, so it is safe to re-run at any time as a check:
 
 ```bash
 npm run backfill:encryption
-```
-
-Expected output today: 5 plaintext values across 3 rows (1 HubSpot, 1 Slack,
-1 Notion). Then apply:
-
-```bash
-npm run backfill:encryption -- --apply
 ```
 
 ## 5. Verify the integrations still work
@@ -71,18 +66,18 @@ round trip end to end. For HubSpot, trigger the cron manually:
 curl -H "Authorization: Bearer $CRON_SECRET" https://www.workliq.com/api/cron/stale-deals
 ```
 
-## 6. Close the migration path
+## 6. Close the migration path — DONE (2026-09-12)
 
-Once step 4 reports **0 plaintext values**, the legacy passthrough in
-`lib/crypto.ts` `decrypt()` should become a hard failure:
+`decrypt()` no longer passes plaintext through. Anything that is not a `v1:`
+envelope now throws, so a credential that somehow reached the database
+unencrypted stops the request rather than being used silently. The error names
+the backfill command and deliberately does not include the rejected value,
+since that value may itself be a live credential.
 
-```ts
-const match = ENVELOPE_RE.exec(stored)
-if (!match) throw new Error('Expected an encryption envelope, got plaintext')
-```
-
-Until that change lands, a row somehow written as plaintext would be used
-silently instead of raising an alarm.
+**One operational consequence:** if you ever restore an old database backup
+taken before 2026-09-12, those rows will be plaintext and every route touching
+them will fail loudly. The fix is to re-run the backfill against the restored
+data — not to revert this behaviour.
 
 ---
 
@@ -285,3 +280,36 @@ update customers set ai_monthly_budget_usd = 25.00 where email = '...';
 A hand-set budget is left alone by later billing webhooks — it only resets if
 the current value still matches a plan default. Overwriting a deliberate
 override on the next invoice would be a baffling bug to diagnose.
+
+
+---
+
+# Plan resolution from Stripe price IDs (2026-09-12)
+
+`lib/plans.ts` now maps Stripe price IDs to plans, built from the same four
+`STRIPE_PRICE_*` variables the checkout route charges against — so the mapping
+cannot drift from what customers are actually billed.
+
+**Why this was needed.** The plan used to come only from
+`subscription.metadata.plan`, which the checkout route writes once. Two ways
+that goes wrong, both ending with someone paying for the wrong thing:
+
+- A customer upgrading Starter → Growth in Stripe's **Billing Portal** changes
+  the *price*. The metadata does not change. They would pay for Growth and keep
+  Starter's limits.
+- A subscription created in the Stripe dashboard, from a payment link, or
+  migrated in has no metadata at all → resolved to Free.
+
+**Precedence:** price ID first, metadata as fallback. An unrecognised price logs
+an error naming the price and telling you to check `STRIPE_PRICE_*` — it is
+never silently treated as Free.
+
+Verified end to end: a `customer.subscription.updated` carrying a Growth annual
+price with stale `starter/monthly` metadata correctly resolved to
+`growth/annual`.
+
+**When you create the live prices,** update all four `STRIPE_PRICE_*` variables
+in Vercel. If they don't match the account the subscriptions are bought in,
+every subscription logs the unrecognised-price error and falls back to metadata
+— which still works for checkout-created subscriptions, but silently loses
+Billing Portal upgrades.
