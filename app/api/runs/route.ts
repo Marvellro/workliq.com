@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getCustomerSession } from '@/lib/session'
 import { getSupabaseAdmin } from '@/lib/config'
 import { enqueue } from '@/lib/jobs'
+import { getEntitlements } from '@/lib/plans'
 
 // Activity feed: what each workflow actually did, and what is still pending.
 //
@@ -16,7 +17,7 @@ export async function GET(req: Request) {
   const limit = Math.min(Number(new URL(req.url).searchParams.get('limit') ?? 50), 200)
   const supabase = getSupabaseAdmin()
 
-  const [runs, queued, spend] = await Promise.all([
+  const [runs, queued, spend, entitlements, workflowCount] = await Promise.all([
     supabase
       .from('workflow_runs')
       .select('id, workflow_id, deal_id, trigger_fingerprint, status, error_message, fired_at, workflows(name, action_type)')
@@ -36,6 +37,12 @@ export async function GET(req: Request) {
     // AI steps cost real money per run, so the spend belongs next to the
     // activity that caused it rather than buried in a billing page.
     supabase.rpc('ai_spend_this_month', { p_customer_id: session.customerId }),
+    getEntitlements(session.customerId),
+    supabase
+      .from('workflows')
+      .select('id', { count: 'exact', head: true })
+      .eq('customer_id', session.customerId)
+      .eq('enabled', true),
   ])
 
   if (runs.error) {
@@ -55,6 +62,12 @@ export async function GET(req: Request) {
           remainingUsd: Number(spendRow.remaining_usd ?? 0),
         }
       : null,
+    plan: {
+      id: entitlements.plan,
+      label: entitlements.label,
+      maxWorkflows: entitlements.maxWorkflows,
+      workflowsUsed: workflowCount.count ?? 0,
+    },
   })
 }
 

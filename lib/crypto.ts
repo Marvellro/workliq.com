@@ -113,15 +113,29 @@ export function encrypt(plaintext: string): string {
  * plaintext. So a tampered row fails loudly instead of, say, redirecting a
  * customer's Slack alerts to an attacker's webhook.
  *
- * Values that aren't in envelope form are returned unchanged. That is the
- * migration path: rows written before encryption shipped are still plaintext,
- * and this lets the live cron keep working while the backfill runs. Once
- * `scripts/backfill-encryption.ts` reports zero legacy rows, the passthrough
- * below should be replaced with a throw — see MIGRATION.md.
+ * Throws on anything that isn't an envelope.
+ *
+ * This used to pass plaintext through unchanged, which was the migration path:
+ * rows written before encryption shipped were still plaintext, and the live
+ * cron had to keep working while the backfill ran. That backfill completed on
+ * 2026-09-12 — every credential column is now `v1:` and re-running the script
+ * reports zero plaintext values — so the passthrough has been removed.
+ *
+ * Failing loudly is the point. With the passthrough in place, a credential that
+ * somehow reached the database unencrypted would be used quite happily and
+ * nobody would ever discover it. Now it stops the request instead, which is the
+ * only way that bug becomes visible.
  */
 export function decrypt(stored: string): string {
   const match = ENVELOPE_RE.exec(stored)
-  if (!match) return stored // legacy plaintext — see doc comment
+  if (!match) {
+    // Deliberately does not include the value: this message goes to logs, and
+    // the thing being rejected may well be a live credential.
+    throw new Error(
+      'Expected an encrypted credential but found an unencrypted value. ' +
+        'Run `npm run backfill:encryption` to check for unencrypted rows.'
+    )
+  }
 
   const [, versionStr, ivB64, tagB64, ctB64] = match
   const version = Number(versionStr)

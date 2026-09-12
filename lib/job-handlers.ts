@@ -3,6 +3,15 @@ import { registerHandler, enqueue, PermanentJobError, type JobRecord } from './j
 import { executeWorkflowAction, isActionPayload, type ActionPayload } from './workflow-execute'
 import { workflowMatchesCondition, type WorkflowRow, type TriggerEvent } from './workflow-engine'
 import { getValidHubSpotToken } from './hubspot'
+import {
+  syncAiBudgetToPlan,
+  planFromId,
+  isPaidStatus,
+  planForPriceId,
+  hasPriceTable,
+  type PlanId,
+} from './plans'
+import type Stripe from 'stripe'
 import { fetchDeal, fetchOwnerMap } from './hubspot-deals'
 
 // Registers every job handler.
@@ -20,6 +29,7 @@ export function registerJobHandlers(): void {
 
   registerHandler('workflow.action', handleWorkflowAction)
   registerHandler('hubspot.event', handleHubSpotEvent)
+  registerHandler('stripe.event', handleStripeEvent)
   registerHandler('maintenance.purge', handleMaintenancePurge)
 }
 
@@ -194,6 +204,209 @@ async function upsertSnapshot(
       },
       { onConflict: 'customer_id,deal_id' }
     )
+}
+
+// ── stripe.event ─────────────────────────────────────────────────────────────
+
+async function handleStripeEvent(job: JobRecord): Promise<void> {
+  const eventId = job.payload.eventId
+  if (typeof eventId !== 'string') {
+    throw new PermanentJobError('stripe.event payload is missing eventId')
+  }
+
+  const supabase = getSupabaseAdmin()
+
+  const { data: row, error } = await supabase
+    .from('stripe_events')
+    .select('*')
+    .eq('id', eventId)
+    .maybeSingle()
+
+  if (error) throw new Error(`Could not load Stripe event: ${error.message}`)
+  if (!row) throw new PermanentJobError(`Stripe event ${eventId} no longer exists`)
+  if (row.processed_at) return // already applied; retry is a no-op
+
+  const event = row.raw as Stripe.Event
+
+  switch (event.type) {
+    case 'checkout.session.completed': {
+      const session = event.data.object as Stripe.Checkout.Session
+      // Checkout only tells us a purchase happened. The subscription events
+      // carry the authoritative state (status, period end, cancellation), so
+      // this is recorded but the plan is set from those.
+      console.log(
+        `[stripe.event] checkout completed for ${session.customer_details?.email ?? 'unknown'}`
+      )
+      break
+    }
+
+    case 'customer.subscription.created':
+    case 'customer.subscription.updated':
+    case 'customer.subscription.deleted': {
+      await applySubscription(event.data.object as Stripe.Subscription, event.type)
+      break
+    }
+
+    case 'invoice.payment_failed': {
+      // Not a downgrade on its own. Stripe moves the subscription to past_due
+      // (or later unpaid/canceled) and sends a subscription.updated for that,
+      // which is what actually changes entitlements. Downgrading here as well
+      // would cut someone off during the retry window they are entitled to.
+      const invoice = event.data.object as Stripe.Invoice
+      console.warn(
+        `[stripe.event] payment failed for customer ${invoice.customer} — awaiting subscription status change`
+      )
+      break
+    }
+  }
+
+  await supabase
+    .from('stripe_events')
+    .update({ processed_at: new Date().toISOString() })
+    .eq('id', eventId)
+}
+
+/**
+ * Decides which plan a subscription grants.
+ *
+ * The price the customer is actually billed for wins over
+ * `subscription.metadata`, which the checkout route writes once and never
+ * updates. A Billing Portal upgrade changes the price and leaves the metadata
+ * stale, so trusting metadata would mean charging someone for Growth while
+ * giving them Starter.
+ *
+ * Metadata remains the fallback for subscriptions created through our own
+ * checkout before this existed, and for the case where the price environment
+ * variables are not configured at all.
+ */
+function resolvePlan(subscription: Stripe.Subscription): {
+  plan: PlanId
+  billingPeriod: string | null
+} {
+  // A subscription can carry several items. Take the first one that matches a
+  // price we recognise, rather than blindly the first item — an added one-off
+  // or add-on line should not decide the plan.
+  for (const item of subscription.items?.data ?? []) {
+    const mapped = planForPriceId(item.price?.id)
+    if (mapped) return { plan: mapped.plan, billingPeriod: mapped.billingPeriod }
+  }
+
+  const metadataPlan = subscription.metadata?.plan
+  const priceIds = (subscription.items?.data ?? []).map((i) => i.price?.id).filter(Boolean)
+
+  if (!hasPriceTable()) {
+    // No STRIPE_PRICE_* variables are set at all, so nothing could have matched.
+    console.error(
+      '[stripe.event] no STRIPE_PRICE_* variables configured — falling back to subscription metadata. ' +
+        'Set them so plan changes made in the Stripe Billing Portal are honoured.'
+    )
+  } else if (priceIds.length > 0) {
+    // Configured, but this price is not one of ours. Someone is paying for
+    // something we do not recognise; that must be visible, not silently free.
+    console.error(
+      `[stripe.event] subscription ${subscription.id} uses unrecognised price(s) ` +
+        `${priceIds.join(', ')} — check STRIPE_PRICE_* match the account these were bought in. ` +
+        `Falling back to metadata (${metadataPlan ?? 'none'}).`
+    )
+  }
+
+  return {
+    plan: planFromId(metadataPlan),
+    billingPeriod: subscription.metadata?.billing ?? null,
+  }
+}
+
+async function applySubscription(
+  subscription: Stripe.Subscription,
+  eventType: string
+): Promise<void> {
+  const supabase = getSupabaseAdmin()
+
+  // The payer's email. Stripe puts it in different places depending on how the
+  // subscription was created, so try each.
+  const stripeCustomerId =
+    typeof subscription.customer === 'string' ? subscription.customer : subscription.customer?.id
+
+  let email: string | null = null
+  if (stripeCustomerId) {
+    const { data: existing } = await supabase
+      .from('subscriptions')
+      .select('email')
+      .eq('stripe_customer_id', stripeCustomerId)
+      .maybeSingle()
+    email = existing?.email ?? null
+  }
+
+  if (!email) {
+    // First time we've seen this subscription — read the email off the Stripe
+    // customer record.
+    const secret = process.env.STRIPE_SECRET_KEY
+    if (!secret) throw new PermanentJobError('STRIPE_SECRET_KEY is not set')
+    const { default: StripeCtor } = await import('stripe')
+    const stripe = new StripeCtor(secret, { apiVersion: '2026-05-27.dahlia' })
+    if (!stripeCustomerId) throw new PermanentJobError('Subscription has no customer')
+    const customer = await stripe.customers.retrieve(stripeCustomerId)
+    if (customer.deleted) throw new PermanentJobError('Stripe customer was deleted')
+    email = customer.email
+  }
+
+  if (!email) {
+    throw new PermanentJobError('Could not determine the email for this subscription')
+  }
+
+  // 'deleted' means the subscription is gone; record it as canceled so the
+  // entitlement lookup stops counting it.
+  const status = eventType === 'customer.subscription.deleted' ? 'canceled' : subscription.status
+  const { plan, billingPeriod } = resolvePlan(subscription)
+  const periodEndSeconds = (subscription as unknown as { current_period_end?: number })
+    .current_period_end
+
+  const { data: saved, error } = await supabase
+    .from('subscriptions')
+    .upsert(
+      {
+        email: email.toLowerCase(),
+        stripe_customer_id: stripeCustomerId,
+        stripe_subscription_id: subscription.id,
+        plan,
+        billing_period: billingPeriod,
+        status,
+        current_period_end: periodEndSeconds
+          ? new Date(periodEndSeconds * 1000).toISOString()
+          : null,
+        cancel_at_period_end: subscription.cancel_at_period_end ?? false,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'stripe_subscription_id' }
+    )
+    .select('id, customer_id')
+    .single()
+
+  if (error) throw new Error(`Could not save subscription: ${error.message}`)
+
+  // Link it to a customer if one already exists for this email. Usually they
+  // sign up after paying, in which case the login path claims it instead.
+  let customerId = saved.customer_id as string | null
+  if (!customerId) {
+    const { data: customer } = await supabase
+      .from('customers')
+      .select('id')
+      .ilike('email', email)
+      .maybeSingle()
+    if (customer) {
+      customerId = customer.id
+      await supabase.from('subscriptions').update({ customer_id: customerId }).eq('id', saved.id)
+    }
+  }
+
+  if (customerId) {
+    // A lapsed subscription drops the account to free limits.
+    await syncAiBudgetToPlan(customerId, isPaidStatus(status) ? plan : 'free')
+  }
+
+  console.log(
+    `[stripe.event] ${email} → ${plan} (${status})${customerId ? '' : ' — not yet linked to an account'}`
+  )
 }
 
 // ── maintenance.purge ────────────────────────────────────────────────────────
