@@ -238,10 +238,27 @@ test-mode and live-mode endpoints have different secrets.
 Until it is set, the endpoint returns 500 and Stripe retries, so no event is
 lost — it just isn't applied yet.
 
-**3. Note on the Stripe account.** The Stripe account connected to this session
-was `liooasis.bigcartel`, which is a different business, so I did not touch it.
-Everything above has to be done in the Stripe account that actually owns the
-Workliq prices.
+**3. Stripe account — resolved 2026-09-12.** `STRIPE_SECRET_KEY` in Vercel was
+previously an `sk_live_` key belonging to an **unrelated Stripe account**. The
+real Workliq account is `acct_1ThYO55p9W7Bltln`; Workliq Starter and Workliq
+Growth were created in its live mode, and all six Stripe variables in Vercel
+were replaced with values from that account.
+
+The live webhook endpoint now exists in the Workliq account at
+`https://www.workliq.com/api/webhooks/stripe` for the five events above, and
+`STRIPE_WEBHOOK_SECRET` is set. Confirmed in production: the endpoint answers
+`400 Invalid signature` rather than `500 Not configured`, which is only possible
+when both the secret key and the webhook secret are present.
+
+> **Worth checking once:** if the previous `sk_live_` key was ever live on the
+> pricing page, any checkout completed against it created a subscription in that
+> other account. Review it for real charges, and refund or cancel anything found.
+
+`NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` is set but **no code reads it** — Workliq
+uses Stripe's hosted Checkout, so the browser never needs a publishable key. It
+is harmless, and correct as a Config rather than a Secret since `NEXT_PUBLIC_`
+values are compiled into the client bundle. Only add `@stripe/stripe-js` and
+start using it if you later move to an embedded card form.
 
 ## How plans resolve
 
