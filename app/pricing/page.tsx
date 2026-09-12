@@ -11,8 +11,9 @@ export default function Pricing() {
 
   const faqs = [
     { q: "Can I change plans at any time?", a: "Yes — upgrade instantly, downgrade at end of billing cycle. Unused days are prorated automatically by Stripe." },
-    { q: "Is there a free trial?", a: "Growth includes a 14-day free trial — no card required. Starter is permanently free up to 50 runs/month." },
-    { q: "What happens if I exceed my run limit?", a: "We alert you at 80% and 100%. Workflows pause (not fail) until you upgrade or the cycle resets. No silent overages." },
+    { q: "Is there a free trial?", a: "There's a free plan rather than a trial. It runs one active workflow with the same HubSpot, Slack and Notion connections, so you can see it working on your own deals before paying. Paid plans bill immediately." },
+    { q: "What happens when I hit my workflow limit?", a: "Creating or enabling another workflow is blocked with a message telling you the limit and how to make room. Nothing you've already built stops running, and you can disable one workflow to enable another at any time." },
+    { q: "How is AI usage charged?", a: "It isn't charged separately — each plan includes a monthly AI budget ($10 on Starter, $50 on Growth) and a deal summary costs well under a cent. If you exhaust it, AI steps pause until the next month and every other action carries on. Your usage against the budget is on the Activity page." },
     { q: "Are refunds available?", a: "All fees are non-refundable except where required by law. You keep access until the end of your billing period after cancelling." },
   ];
 
@@ -107,7 +108,7 @@ export default function Pricing() {
             {checkoutLoading === `starter-${billingLabel}` ? "Loading…" : "Get started →"}
           </button>
           <div style={{ height: "0.5px", background: "#E5E7EB", marginBottom: 14 }} />
-          {["5 active workflows", "500 automation runs/mo", "10 integrations", "1 AI agent", "Email support"].map((f, i) => (
+          {["10 active workflows", "HubSpot, Slack and Notion", "AI steps — $10/mo of usage", "Webhook actions", "Activity log with replay", "Email support"].map((f, i) => (
             <div key={i} style={{ display: "flex", gap: 7, fontSize: 12, color: "#374151", marginBottom: 7, alignItems: "flex-start" }}>
               <span style={{ color: "#3B6D11", flexShrink: 0, marginTop: 1 }}>✓</span>{f}
             </div>
@@ -131,10 +132,10 @@ export default function Pricing() {
             disabled={checkoutLoading === `growth-${billingLabel}`}
             style={{ display: "block", width: "100%", padding: "10px", borderRadius: 9, border: "none", background: checkoutLoading === `growth-${billingLabel}` ? "#93AEED" : "#1A56DB", color: "#fff", fontSize: 13, fontWeight: 600, cursor: checkoutLoading === `growth-${billingLabel}` ? "not-allowed" : "pointer", marginBottom: 16, textAlign: "center", minHeight: 44, transition: "background 0.15s" }}
           >
-            {checkoutLoading === `growth-${billingLabel}` ? "Loading…" : "Start free trial →"}
+            {checkoutLoading === `growth-${billingLabel}` ? "Loading…" : "Get started →"}
           </button>
           <div style={{ height: "0.5px", background: "#E5E7EB", marginBottom: 14 }} />
-          {["Unlimited workflows", "10,000 runs/mo", "All 214 integrations", "5 AI agents", "Analytics dashboard", "Priority support"].map((f, i) => (
+          {["50 active workflows", "HubSpot, Slack and Notion", "AI steps — $50/mo of usage", "Webhook actions", "Activity log with replay", "Priority support"].map((f, i) => (
             <div key={i} style={{ display: "flex", gap: 7, fontSize: 12, color: "#374151", marginBottom: 7, alignItems: "flex-start" }}>
               <span style={{ color: "#3B6D11", flexShrink: 0, marginTop: 1 }}>✓</span>{f}
             </div>
@@ -156,7 +157,7 @@ export default function Pricing() {
             Talk to sales →
           </a>
           <div style={{ height: "0.5px", background: "#E5E7EB", marginBottom: 14 }} />
-          {["Unlimited runs", "Unlimited AI agents", "SSO / SAML", "Audit logs (90 days)", "Dedicated CSM", "Custom SLA + uptime", "Custom contracts"].map((f, i) => (
+          {["Custom workflow limits", "Custom AI budget", "Audit trail export", "Dedicated support contact", "Custom SLA + uptime", "Custom contracts"].map((f, i) => (
             <div key={i} style={{ display: "flex", gap: 7, fontSize: 12, color: "#374151", marginBottom: 7, alignItems: "flex-start" }}>
               <span style={{ color: "#3B6D11", flexShrink: 0, marginTop: 1 }}>✓</span>{f}
             </div>
