@@ -112,14 +112,55 @@ export async function GET(req: Request) {
     return NextResponse.redirect(`${APP_URL}/dashboard?error=notion_token_failed`)
   }
 
+  // ── Step 1a: Reuse the customer's existing database if we still can ──────
+  //
+  // Reconnecting used to create a second "Workliq Stale Deals" database and
+  // overwrite the stored id, silently orphaning the first one — along with
+  // every Status value the customer had set while triaging. Since Status is
+  // explicitly theirs (we only ever write "New"), abandoning it is destroying
+  // work they did by hand.
+  //
+  // A reconnect is a fresh bot install, so the new token does not automatically
+  // inherit access. We ask Notion directly rather than assuming: if the new
+  // install can still read the old database, keep writing to it.
+  let reusedDatabaseId: string | null = null
+  const { data: existing } = await getSupabaseAdmin()
+    .from('notion_connections')
+    .select('database_id, parent_page_id')
+    .eq('customer_id', session.customerId)
+    .maybeSingle()
+
+  if (existing?.database_id) {
+    try {
+      const checkRes = await fetch(
+        `https://api.notion.com/v1/databases/${existing.database_id}`,
+        { headers: notionHeaders(tokenData.access_token) }
+      )
+      if (checkRes.ok) {
+        reusedDatabaseId = existing.database_id
+        console.log(`Notion reconnect: reusing existing database ${existing.database_id}`)
+      } else {
+        // 404 means this install was not granted access to that page. Creating
+        // a new database is then the only option — but it is a deliberate
+        // fallback, not the default path.
+        console.warn(
+          `Notion reconnect: previous database ${existing.database_id} is not accessible ` +
+            `to the new install (${checkRes.status}); creating a fresh one`
+        )
+      }
+    } catch (err) {
+      console.warn('Notion reconnect: database accessibility check failed:', err)
+    }
+  }
+
   // ── Step 2: Find the parent page the customer granted access to ───────────
   // After OAuth, the bot can only see pages the customer explicitly shared.
   // We search for accessible pages and use the first result as the database
   // parent — in practice this will be the one page they picked on the consent
   // screen for a fresh install.
-  let parentPageId: string
+  let parentPageId: string = existing?.parent_page_id ?? ''
   try {
-    const searchRes = await fetch('https://api.notion.com/v1/search', {
+    const searchRes = reusedDatabaseId ? null : await fetch('https://api.notion.com/v1/search', {
       method: 'POST',
       headers: notionHeaders(tokenData.access_token),
       body: JSON.stringify({
@@ -128,22 +169,22 @@ export async function GET(req: Request) {
       }),
     })
 
-    if (!searchRes.ok) {
+    if (searchRes && !searchRes.ok) {
       const errText = await searchRes.text()
       console.error('Notion page search failed:', searchRes.status, errText)
       return NextResponse.redirect(`${APP_URL}/dashboard?error=notion_page_failed`)
     }
 
-    const searchData: NotionSearchResponse = await searchRes.json()
+    const searchData: NotionSearchResponse | null = searchRes ? await searchRes.json() : null
 
-    if (!searchData.results.length) {
+    if (searchData && !searchData.results.length) {
       // The customer didn't grant access to any page — shouldn't happen in the
       // normal consent flow, but handle it gracefully.
       console.error('Notion search returned no accessible pages for customer', session.customerId)
       return NextResponse.redirect(`${APP_URL}/dashboard?error=notion_no_page`)
     }
 
-    parentPageId = searchData.results[0].id
+    if (searchData) parentPageId = searchData.results[0].id
   } catch (err) {
     console.error('Notion page search network error:', err)
     return NextResponse.redirect(`${APP_URL}/dashboard?error=notion_page_failed`)
@@ -154,56 +195,60 @@ export async function GET(req: Request) {
   // Status is included but Workliq only sets it to "New" at creation time and
   // never overwrites it — that field belongs to the customer for their triage.
   let databaseId: string
-  try {
-    const createRes = await fetch('https://api.notion.com/v1/databases', {
-      method: 'POST',
-      headers: notionHeaders(tokenData.access_token),
-      body: JSON.stringify({
-        parent: { type: 'page_id', page_id: parentPageId },
-        title: [{ type: 'text', text: { content: 'Workliq Stale Deals' } }],
-        properties: {
-          // Title is always first and is the Notion "name" property
-          'Deal Name':   { title: {} },
-          'Stage':       { select: { options: [] } },
-          // Notion uses "rich_text" for freeform text fields (called "Text" in the UI)
-          'Owner':       { rich_text: {} },
-          'Days Stale':  { number: { format: 'number' } },
-          'Threshold':   {
-            select: {
-              options: [
-                { name: '3',  color: 'gray' },
-                { name: '7',  color: 'yellow' },
-                { name: '14', color: 'orange' },
-                { name: '30', color: 'red' },
-              ],
+  if (reusedDatabaseId) {
+    databaseId = reusedDatabaseId
+  } else {
+    try {
+      const createRes = await fetch('https://api.notion.com/v1/databases', {
+        method: 'POST',
+        headers: notionHeaders(tokenData.access_token),
+        body: JSON.stringify({
+          parent: { type: 'page_id', page_id: parentPageId },
+          title: [{ type: 'text', text: { content: 'Workliq Stale Deals' } }],
+          properties: {
+            // Title is always first and is the Notion "name" property
+            'Deal Name':   { title: {} },
+            'Stage':       { select: { options: [] } },
+            // Notion uses "rich_text" for freeform text fields (called "Text" in the UI)
+            'Owner':       { rich_text: {} },
+            'Days Stale':  { number: { format: 'number' } },
+            'Threshold':   {
+              select: {
+                options: [
+                  { name: '3',  color: 'gray' },
+                  { name: '7',  color: 'yellow' },
+                  { name: '14', color: 'orange' },
+                  { name: '30', color: 'red' },
+                ],
+              },
+            },
+            'Flagged On':  { date: {} },
+            'HubSpot Link': { url: {} },
+            'Status': {
+              select: {
+                options: [
+                  { name: 'New',          color: 'blue' },
+                  { name: 'Acknowledged', color: 'yellow' },
+                  { name: 'Resolved',     color: 'green' },
+                ],
+              },
             },
           },
-          'Flagged On':  { date: {} },
-          'HubSpot Link': { url: {} },
-          'Status': {
-            select: {
-              options: [
-                { name: 'New',          color: 'blue' },
-                { name: 'Acknowledged', color: 'yellow' },
-                { name: 'Resolved',     color: 'green' },
-              ],
-            },
-          },
-        },
-      }),
-    })
+        }),
+      })
 
-    if (!createRes.ok) {
-      const errText = await createRes.text()
-      console.error('Notion database creation failed:', createRes.status, errText)
+      if (!createRes.ok) {
+        const errText = await createRes.text()
+        console.error('Notion database creation failed:', createRes.status, errText)
+        return NextResponse.redirect(`${APP_URL}/dashboard?error=notion_db_create_failed`)
+      }
+
+      const createData = await createRes.json()
+      databaseId = createData.id
+    } catch (err) {
+      console.error('Notion database creation network error:', err)
       return NextResponse.redirect(`${APP_URL}/dashboard?error=notion_db_create_failed`)
     }
-
-    const createData = await createRes.json()
-    databaseId = createData.id
-  } catch (err) {
-    console.error('Notion database creation network error:', err)
-    return NextResponse.redirect(`${APP_URL}/dashboard?error=notion_db_create_failed`)
   }
 
   // ── Step 4: Persist the connection ────────────────────────────────────────
