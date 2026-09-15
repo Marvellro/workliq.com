@@ -1,11 +1,11 @@
-import { getSupabaseAdmin, OAUTH_REDIRECT_URIS } from './config'
+import { getSupabaseAdmin, OAUTH_REDIRECT_URIS, OAUTH_CLIENT_IDS } from './config'
 import { encrypt, decrypt } from './crypto'
 
 // HubSpot access tokens expire after ~30 minutes. We refresh proactively when
 // within REFRESH_BUFFER_MS of expiry to avoid a mid-request token failure.
 const REFRESH_BUFFER_MS = 5 * 60 * 1000 // 5 minutes
 
-export const HUBSPOT_CLIENT_ID = '399fbd57-9bd1-4d3a-926a-31f18232704f'
+export const HUBSPOT_CLIENT_ID = OAUTH_CLIENT_IDS.hubspot
 
 // Returns a valid HubSpot access token for the given customer, refreshing via
 // the stored refresh_token if the access token is expired or about to expire.

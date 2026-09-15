@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server'
 import { randomBytes } from 'crypto'
 import { getCustomerSession } from '@/lib/session'
-import { appUrl, OAUTH_REDIRECT_URIS } from '@/lib/config'
+import { appUrl, OAUTH_REDIRECT_URIS, OAUTH_CLIENT_IDS } from '@/lib/config'
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit'
 
-const SLACK_CLIENT_ID = '1139561584631.11439398705216'
+const SLACK_CLIENT_ID = OAUTH_CLIENT_IDS.slack
 const SLACK_REDIRECT_URI = OAUTH_REDIRECT_URIS.slack
 
 export async function GET() {

@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server'
 import { getCustomerSession } from '@/lib/session'
-import { getSupabaseAdmin, appUrl, APP_URL, OAUTH_REDIRECT_URIS } from '@/lib/config'
+import { getSupabaseAdmin, appUrl, APP_URL, OAUTH_REDIRECT_URIS, OAUTH_CLIENT_IDS } from '@/lib/config'
 import { encrypt } from '@/lib/crypto'
 import { recordAudit, clientIp, userAgent } from '@/lib/audit'
 
-export const SLACK_CLIENT_ID = '1139561584631.11439398705216'
+const SLACK_CLIENT_ID = OAUTH_CLIENT_IDS.slack
 const SLACK_REDIRECT_URI = OAUTH_REDIRECT_URIS.slack
 
 type SlackOAuthResponse = {

@@ -23,6 +23,26 @@ export function appUrl(path: string): string {
   return `${APP_URL}${path.startsWith('/') ? path : `/${path}`}`
 }
 
+// OAuth client IDs.
+//
+// These are NOT secrets — every one of them is sent to the browser as a query
+// parameter on the authorize URL. They live in env vars so the value can be
+// changed without a deploy (the Slack ID was wrong by a single digit for
+// months, and correcting it required shipping code), and so a staging app can
+// point at a different provider app.
+//
+// Deliberately not NEXT_PUBLIC_: they are only read server-side, and the
+// NEXT_PUBLIC_ prefix would inline them at build time — losing the
+// change-without-deploy property that is the whole point.
+//
+// The literals are fallbacks so a missing variable degrades to the current
+// production app rather than breaking OAuth outright.
+export const OAUTH_CLIENT_IDS = {
+  hubspot: process.env.HUBSPOT_CLIENT_ID || '399fbd57-9bd1-4d3a-926a-31f18232704f',
+  slack: process.env.SLACK_CLIENT_ID || '11395615844631.11439398705216',
+  notion: process.env.NOTION_CLIENT_ID || '386d872b-594c-8162-84f2-00370d6f32cc',
+} as const
+
 export const OAUTH_REDIRECT_URIS = {
   hubspot: appUrl('/api/auth/hubspot/callback'),
   slack: appUrl('/api/auth/slack/callback'),

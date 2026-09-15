@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server'
 import { randomBytes } from 'crypto'
 import { getCustomerSession } from '@/lib/session'
-import { appUrl, OAUTH_REDIRECT_URIS } from '@/lib/config'
+import { appUrl, OAUTH_REDIRECT_URIS, OAUTH_CLIENT_IDS } from '@/lib/config'
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit'
 
-const NOTION_CLIENT_ID = '386d872b-594c-8162-84f2-00370d6f32cc'
+const NOTION_CLIENT_ID = OAUTH_CLIENT_IDS.notion
 const NOTION_REDIRECT_URI = OAUTH_REDIRECT_URIS.notion
 
 export async function GET() {

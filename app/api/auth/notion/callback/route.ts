@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server'
 import { getCustomerSession } from '@/lib/session'
-import { getSupabaseAdmin, appUrl, APP_URL, OAUTH_REDIRECT_URIS } from '@/lib/config'
+import { getSupabaseAdmin, appUrl, APP_URL, OAUTH_REDIRECT_URIS, OAUTH_CLIENT_IDS } from '@/lib/config'
 import { encrypt } from '@/lib/crypto'
 import { recordAudit, clientIp, userAgent } from '@/lib/audit'
 
-export const NOTION_CLIENT_ID = '386d872b-594c-8162-84f2-00370d6f32cc'
+const NOTION_CLIENT_ID = OAUTH_CLIENT_IDS.notion
 const NOTION_REDIRECT_URI = OAUTH_REDIRECT_URIS.notion
 const NOTION_VERSION = '2022-06-28'
 
