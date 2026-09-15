@@ -70,7 +70,12 @@ function summarize(w: Workflow): string {
     const where = w.action_config.deliver_to === 'notion_row' ? 'Notion' : 'Slack'
     action = `AI: ${AI_TASK_LABELS[w.action_config.ai_task].toLowerCase()}, posted to ${where}`
   }
-  return `When ${trigger}${condition} → ${action}`
+  // TRIGGER_LABELS are written to stand alone ("A deal is created"), but here
+  // they are interpolated mid-sentence after "When". Lowercasing the first
+  // letter at the join keeps both readings correct without a second set of
+  // strings to maintain — every label begins "A deal", so this is always safe.
+  const midSentence = trigger.charAt(0).toLowerCase() + trigger.slice(1)
+  return `When ${midSentence}${condition} → ${action}`
 }
 
 export default function WorkflowsClient({ initialWorkflows, slackConnected, notionConnected }: Props) {
