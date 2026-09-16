@@ -22,6 +22,7 @@ export type AuditAction =
   | 'admin.waitlist_deleted'
   | 'admin.access_denied'
   | 'ratelimit.exceeded'
+  | 'webhook.rejected'
 
 export type AuditEntry = {
   action: AuditAction

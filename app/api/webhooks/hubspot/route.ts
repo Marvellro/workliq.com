@@ -9,6 +9,7 @@ import {
 } from '@/lib/hubspot-signature'
 import { enqueue, runJobs } from '@/lib/jobs'
 import { registerJobHandlers } from '@/lib/job-handlers'
+import { recordAudit, clientIp, userAgent } from '@/lib/audit'
 
 // Inbound HubSpot webhooks.
 //
@@ -54,6 +55,35 @@ export async function POST(req: Request) {
 
   if (!check.valid) {
     console.warn(`[webhooks/hubspot] rejected: ${check.reason}`)
+
+    // Recorded, not just logged to a console nobody can read.
+    //
+    // A rejected request used to leave no trace at all, which made two very
+    // different situations look identical from the database: HubSpot never
+    // called us, versus HubSpot called and we turned it away. During the first
+    // production test of this endpoint that ambiguity cost real debugging time.
+    //
+    // The URI we derived is included because the likeliest cause of a genuine
+    // mismatch is a host disagreement — HubSpot signs the URL it called, so a
+    // subscription pointing at the apex would be signed for the apex while we
+    // verify against www, and the signature can never match.
+    //
+    // No signature or body is stored: the body is customer CRM data, and the
+    // signature is the thing being disputed.
+    await recordAudit({
+      action: 'webhook.rejected',
+      metadata: {
+        provider: 'hubspot',
+        reason: check.reason,
+        expected_uri: buildSignedUri(APP_URL, url.pathname, url.search),
+        had_signature: Boolean(req.headers.get(SIGNATURE_HEADER)),
+        had_timestamp: Boolean(req.headers.get(TIMESTAMP_HEADER)),
+        body_bytes: body.length,
+      },
+      ip: clientIp(req),
+      userAgent: userAgent(req),
+    })
+
     // 401, deliberately: a signature that doesn't verify will not verify on
     // retry either, and telling HubSpot to keep re-sending a request we will
     // keep rejecting helps nobody.

@@ -3,6 +3,7 @@ import Stripe from 'stripe'
 import { getSupabaseAdmin } from '@/lib/config'
 import { enqueue, runJobs } from '@/lib/jobs'
 import { registerJobHandlers } from '@/lib/job-handlers'
+import { recordAudit, clientIp, userAgent } from '@/lib/audit'
 
 // Inbound Stripe webhooks.
 //
@@ -58,6 +59,16 @@ export async function POST(req: Request) {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     console.warn('[webhooks/stripe] signature verification failed:', message)
+
+    // Same reasoning as the HubSpot receiver: without a record, "Stripe never
+    // called" and "Stripe called and we rejected it" are indistinguishable.
+    await recordAudit({
+      action: 'webhook.rejected',
+      metadata: { provider: 'stripe', reason: message, body_bytes: body.length },
+      ip: clientIp(req),
+      userAgent: userAgent(req),
+    })
+
     // 400, deliberately: a signature that doesn't verify won't verify on retry.
     return NextResponse.json({ error: 'Invalid signature' }, { status: 400 })
   }
