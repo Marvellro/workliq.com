@@ -48,8 +48,35 @@ async function handleWorkflowAction(job: JobRecord): Promise<void> {
 // HubSpot subscription types we act on. Anything else is recorded and marked
 // processed without further work, so an over-broad subscription in the HubSpot
 // app doesn't generate noise or dead jobs.
+//
+// Two payload shapes have to be tolerated, because HubSpot's projects platform
+// declares subscriptions in two forms and we cannot be certain which shape the
+// delivered event carries:
+//
+//   legacy   subscriptionType: "deal.propertyChange"   (object baked into the string)
+//   modern   subscriptionType: "object.propertyChange" + objectType: "deal"
+//
+// Matching only the legacy strings would mean every modern-form event is
+// received, stored, silently marked processed, and never acted on — which looks
+// exactly like the webhook not working at all, with no error anywhere. Matching
+// both costs nothing and removes the guess.
 const DEAL_CREATED = 'deal.creation'
 const DEAL_PROPERTY_CHANGE = 'deal.propertyChange'
+const OBJECT_CREATED = 'object.creation'
+const OBJECT_PROPERTY_CHANGE = 'object.propertyChange'
+
+// HubSpot's internal type id for deals, used when the modern payload identifies
+// the object by id rather than name.
+const DEAL_OBJECT_TYPE_ID = '0-3'
+
+/** True when a modern-form event is about a deal. */
+function isDealObject(raw: unknown): boolean {
+  if (!raw || typeof raw !== 'object') return false
+  const r = raw as Record<string, unknown>
+  const name = typeof r.objectType === 'string' ? r.objectType.toLowerCase() : null
+  const typeId = r.objectTypeId != null ? String(r.objectTypeId) : null
+  return name === 'deal' || name === 'deals' || typeId === DEAL_OBJECT_TYPE_ID
+}
 
 async function handleHubSpotEvent(job: JobRecord): Promise<void> {
   const eventId = job.payload.eventId
@@ -79,9 +106,19 @@ async function handleHubSpotEvent(job: JobRecord): Promise<void> {
   const dealId = event.object_id as string
 
   // Only stage changes and creations map to a trigger today.
+  //
+  // For a property change, `dealstage` alone identifies it — that property only
+  // exists on deals — so the subscriptionType prefix does not need to be
+  // trusted. For a creation there is no such tell, so the modern form is
+  // confirmed against the raw payload's object type.
   const isStageChange =
-    event.subscription_type === DEAL_PROPERTY_CHANGE && event.property_name === 'dealstage'
-  const isCreation = event.subscription_type === DEAL_CREATED
+    (event.subscription_type === DEAL_PROPERTY_CHANGE ||
+      event.subscription_type === OBJECT_PROPERTY_CHANGE) &&
+    event.property_name === 'dealstage'
+
+  const isCreation =
+    event.subscription_type === DEAL_CREATED ||
+    (event.subscription_type === OBJECT_CREATED && isDealObject(event.raw))
 
   if (!isStageChange && !isCreation) {
     await markProcessed(eventId)
