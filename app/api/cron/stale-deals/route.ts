@@ -2,6 +2,15 @@ import { NextResponse } from 'next/server'
 import { getValidHubSpotToken } from '@/lib/hubspot'
 import { getSupabaseAdmin } from '@/lib/config'
 import { decrypt } from '@/lib/crypto'
+import {
+  ConnectionError,
+  markConnectionUnhealthy,
+  hubspotApiFailure,
+  slackWebhookFailure,
+  notionFailure,
+  recordConnectionSuccess,
+} from '@/lib/connection-health'
+import { runNotificationSweep } from '@/lib/notify'
 
 // Vercel cron sends Authorization: Bearer {CRON_SECRET} with every invocation.
 // Without this check, anyone who knows the URL could trigger the job.
@@ -59,7 +68,7 @@ type AlertRow = {
 
 // Fetches all deals for a portal, paginating until HubSpot signals no more pages.
 // Each page returns up to 100 deals; we request only the four properties we use.
-async function fetchAllDeals(accessToken: string): Promise<HubSpotDeal[]> {
+async function fetchAllDeals(customerId: string, accessToken: string): Promise<HubSpotDeal[]> {
   const deals: HubSpotDeal[] = []
   let after: string | null = null
 
@@ -75,6 +84,8 @@ async function fetchAllDeals(accessToken: string): Promise<HubSpotDeal[]> {
 
     if (!res.ok) {
       const body = await res.text()
+      const dead = hubspotApiFailure(customerId, res.status, body)
+      if (dead) throw dead
       throw new Error(`HubSpot deals fetch failed (${res.status}): ${body}`)
     }
 
@@ -117,6 +128,7 @@ async function fetchOwnerMap(accessToken: string): Promise<Map<string, string>> 
 // ── Notification helpers ──────────────────────────────────────────────────────
 
 async function postSlackAlert(
+  customerId: string,
   webhookUrl: string,
   deal: HubSpotDeal,
   daysStale: number,
@@ -146,11 +158,16 @@ async function postSlackAlert(
   // Any non-200 is a genuine delivery failure.
   if (!res.ok) {
     const body = await res.text()
+    const dead = slackWebhookFailure(customerId, res.status, body)
+    if (dead) throw dead
     throw new Error(`Slack webhook returned ${res.status}: ${body}`)
   }
+
+  await recordConnectionSuccess(customerId, 'slack')
 }
 
 async function createNotionRow(
+  customerId: string,
   conn: NotionConnection,
   deal: HubSpotDeal,
   daysStale: number,
@@ -189,8 +206,12 @@ async function createNotionRow(
 
   if (!res.ok) {
     const body = await res.text()
+    const dead = notionFailure(customerId, res.status, body)
+    if (dead) throw dead
     throw new Error(`Notion page creation returned ${res.status}: ${body}`)
   }
+
+  await recordConnectionSuccess(customerId, 'notion')
 }
 
 // ── Main handler ──────────────────────────────────────────────────────────────
@@ -283,6 +304,13 @@ export async function GET(req: Request) {
     try {
       accessToken = await getValidHubSpotToken(customerId)
     } catch (err) {
+      // Both crons skip a customer they cannot reach and move on. That is the
+      // right behaviour — one broken account must not stop the run — but on its
+      // own it is also how a dead grant stays invisible: skipped silently, every
+      // day, indefinitely. Flagging the connection is what turns the skip into
+      // something the customer can eventually be told about.
+      if (err instanceof ConnectionError) await markConnectionUnhealthy(err)
+
       console.error(`[stale-deals] customer ${customerId}: token refresh failed —`, err)
       continue
     }
@@ -292,10 +320,12 @@ export async function GET(req: Request) {
     let ownerMap: Map<string, string>
     try {
       ;[deals, ownerMap] = await Promise.all([
-        fetchAllDeals(accessToken),
+        fetchAllDeals(customerId, accessToken),
         fetchOwnerMap(accessToken),
       ])
     } catch (err) {
+      if (err instanceof ConnectionError) await markConnectionUnhealthy(err)
+
       console.error(`[stale-deals] customer ${customerId}: deal/owner fetch failed —`, err)
       continue
     }
@@ -350,6 +380,7 @@ export async function GET(req: Request) {
       if (!alert.slack_notified && slackConn) {
         try {
           await postSlackAlert(
+            customerId,
             decrypt((slackConn as SlackConnection).webhook_url),
             deal,
             daysStale,
@@ -376,7 +407,14 @@ export async function GET(req: Request) {
             totalAlerts++
           }
         } catch (err) {
-          // Leave slack_notified = false so the next cron run retries
+          // Leave slack_notified = false so the next cron run retries.
+          //
+          // This path is not on the job queue, so runJobs never sees the error
+          // and nothing else would flag the connection. Without this the retry
+          // above is worse than useless against a dead webhook: it repeats once
+          // a day, forever, and tells nobody.
+          if (err instanceof ConnectionError) await markConnectionUnhealthy(err)
+
           console.error(
             `[stale-deals] customer ${customerId} deal ${deal.id}: Slack send failed —`,
             err
@@ -388,6 +426,7 @@ export async function GET(req: Request) {
       if (!alert.notion_logged && notionConn) {
         try {
           await createNotionRow(
+            customerId,
             notionConn as NotionConnection,
             deal,
             daysStale,
@@ -413,7 +452,10 @@ export async function GET(req: Request) {
             totalAlerts++
           }
         } catch (err) {
-          // Leave notion_logged = false so the next cron run retries
+          // Leave notion_logged = false so the next cron run retries. Same
+          // reasoning as the Slack catch above — nothing else flags this path.
+          if (err instanceof ConnectionError) await markConnectionUnhealthy(err)
+
           console.error(
             `[stale-deals] customer ${customerId} deal ${deal.id}: Notion write failed —`,
             err
@@ -423,6 +465,10 @@ export async function GET(req: Request) {
     }
   }
 
+  // Both crons can flag a connection without ever touching the queue, so the
+  // sweep runs here too rather than only after a job drain.
+  const notified = await runNotificationSweep()
+
   console.log(`[stale-deals] run complete — ${totalAlerts} notifications sent`)
-  return NextResponse.json({ ok: true, alerts: totalAlerts })
+  return NextResponse.json({ ok: true, alerts: totalAlerts, notified })
 }

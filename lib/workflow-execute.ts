@@ -195,7 +195,7 @@ async function runAction(
         ? fillTemplate(workflow.action_config.message_template, payload)
         : defaultSlackText(payload)
 
-      await sendSlackMessage(decrypt(conn.webhook_url), text)
+      await sendSlackMessage(payload.customerId, decrypt(conn.webhook_url), text)
       return
     }
 
@@ -223,6 +223,7 @@ async function runAction(
       }
 
       await createNotionPage(
+        payload.customerId,
         { access_token: decrypt(conn.access_token), database_id: conn.database_id },
         properties
       )
@@ -281,6 +282,7 @@ async function runAction(
         if (!notionConn) throw new PermanentJobError('No Notion connection for this customer')
 
         await createNotionPage(
+          payload.customerId,
           { access_token: decrypt(notionConn.access_token), database_id: notionConn.database_id },
           {
             'Deal Name': { title: [{ text: { content: payload.dealName ?? 'Unnamed deal' } }] },
@@ -304,6 +306,7 @@ async function runAction(
       if (!slackConn) throw new PermanentJobError('No Slack connection for this customer')
 
       await sendSlackMessage(
+        payload.customerId,
         decrypt(slackConn.webhook_url),
         [header, '', text, '', `<${link}|View in HubSpot>`].join('\n')
       )

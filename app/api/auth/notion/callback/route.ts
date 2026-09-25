@@ -265,6 +265,15 @@ export async function GET(req: Request) {
         database_id:    databaseId,
         parent_page_id: parentPageId,
         updated_at:     new Date().toISOString(),
+        // Reconnecting is the fix for a needs_reauth flag, so it must clear it.
+        // Without these three fields the upsert would leave a stale 'broken'
+        // marker on a connection that demonstrably just worked — the customer
+        // would reconnect, see the warning persist, and have nothing left to try.
+        status:          'active',
+        last_error:      null,
+        last_error_at:   null,
+        last_success_at: new Date().toISOString(),
+        broken_notified_at: null,
       },
       { onConflict: 'customer_id' }
     )

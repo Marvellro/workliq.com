@@ -1,5 +1,6 @@
 import { getSupabaseAdmin, OAUTH_REDIRECT_URIS, OAUTH_CLIENT_IDS } from './config'
 import { encrypt, decrypt } from './crypto'
+import { hubspotRefreshFailure, recordConnectionSuccess } from './connection-health'
 
 // HubSpot access tokens expire after ~30 minutes. We refresh proactively when
 // within REFRESH_BUFFER_MS of expiry to avoid a mid-request token failure.
@@ -54,6 +55,20 @@ export async function getValidHubSpotToken(customerId: string): Promise<string> 
 
   if (!refreshRes.ok) {
     const body = await refreshRes.text()
+
+    // A 400 here is HubSpot saying the refresh token itself is dead —
+    // invalid_grant / BAD_REFRESH_TOKEN, which is what an app uninstall
+    // produces. Retrying that is pointless in a way retrying a 503 is not, so
+    // it becomes a ConnectionError: the queue stops, and the connection is
+    // flagged for the customer to reconnect.
+    //
+    // Responses that indicate OUR misconfiguration instead are deliberately
+    // excluded inside hubspotRefreshFailure and fall through to the generic
+    // error below — see the comment there for why that distinction is load
+    // bearing.
+    const dead = hubspotRefreshFailure(customerId, refreshRes.status, body)
+    if (dead) throw dead
+
     throw new Error(
       `HubSpot token refresh failed (${refreshRes.status}): ${body}`
     )
@@ -82,6 +97,12 @@ export async function getValidHubSpotToken(customerId: string): Promise<string> 
     // The next call will refresh again (slightly wasteful but safe).
     console.error('Failed to persist refreshed HubSpot tokens:', updateError)
   }
+
+  // A completed refresh is proof the grant is live, so it clears any earlier
+  // needs_reauth. Only recorded here, never on the early return above: that
+  // path hands back a cached token without contacting HubSpot at all, and
+  // would be claiming a health check that never happened.
+  await recordConnectionSuccess(customerId, 'hubspot')
 
   return refreshed.access_token
 }

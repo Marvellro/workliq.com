@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { getValidHubSpotToken } from '@/lib/hubspot'
 import { getSupabaseAdmin } from '@/lib/config'
 import { fetchAllDeals, fetchOwnerMap } from '@/lib/hubspot-deals'
+import { ConnectionError, markConnectionUnhealthy } from '@/lib/connection-health'
+import { runNotificationSweep } from '@/lib/notify'
 import { runWorkflowsForCustomer, type WorkflowRow } from '@/lib/workflow-engine'
 
 // Vercel cron sends Authorization: Bearer {CRON_SECRET} with every invocation.
@@ -59,6 +61,13 @@ export async function GET(req: Request) {
     try {
       accessToken = await getValidHubSpotToken(customerId)
     } catch (err) {
+      // Both crons skip a customer they cannot reach and move on. That is the
+      // right behaviour — one broken account must not stop the run — but on its
+      // own it is also how a dead grant stays invisible: skipped silently, every
+      // day, indefinitely. Flagging the connection is what turns the skip into
+      // something the customer can eventually be told about.
+      if (err instanceof ConnectionError) await markConnectionUnhealthy(err)
+
       console.error(`[workflows] customer ${customerId}: token refresh failed —`, err)
       continue
     }
@@ -67,10 +76,12 @@ export async function GET(req: Request) {
     let ownerMap
     try {
       ;[deals, ownerMap] = await Promise.all([
-        fetchAllDeals(accessToken),
+        fetchAllDeals(customerId, accessToken),
         fetchOwnerMap(accessToken),
       ])
     } catch (err) {
+      if (err instanceof ConnectionError) await markConnectionUnhealthy(err)
+
       console.error(`[workflows] customer ${customerId}: deal/owner fetch failed —`, err)
       continue
     }
@@ -93,6 +104,10 @@ export async function GET(req: Request) {
     }
   }
 
+  // Both crons can flag a connection without ever touching the queue, so the
+  // sweep runs here too rather than only after a job drain.
+  const notified = await runNotificationSweep()
+
   console.log(`[workflows] reconciliation complete — ${customersProcessed} customers, ${totalQueued} queued, ${totalFailed} failed`)
-  return NextResponse.json({ ok: true, customersProcessed, queued: totalQueued, failed: totalFailed })
+  return NextResponse.json({ ok: true, customersProcessed, queued: totalQueued, failed: totalFailed, notified })
 }

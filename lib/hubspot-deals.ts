@@ -2,6 +2,8 @@
 // the workflow engine cron. Extracted from stale-deals/route.ts so the two
 // jobs don't maintain two copies of the same pagination logic.
 
+import { hubspotApiFailure } from './connection-health'
+
 export type HubSpotDeal = {
   id: string
   properties: {
@@ -22,7 +24,14 @@ const DEAL_PROPERTIES = 'dealname,dealstage,hubspot_owner_id,notes_last_updated'
 
 // Fetches all deals for a portal, paginating until HubSpot signals no more pages.
 // Each page returns up to 100 deals; we request only the properties we use.
-export async function fetchAllDeals(accessToken: string): Promise<HubSpotDeal[]> {
+// customerId is carried purely so a 401/403 can be attributed to the customer's
+// HubSpot connection. A refresh happens immediately before these calls, so a
+// rejection here means the grant died mid-flight or the app is missing a scope
+// — neither of which the caller could diagnose from a bare status code.
+export async function fetchAllDeals(
+  customerId: string,
+  accessToken: string
+): Promise<HubSpotDeal[]> {
   const deals: HubSpotDeal[] = []
   let after: string | null = null
 
@@ -38,6 +47,8 @@ export async function fetchAllDeals(accessToken: string): Promise<HubSpotDeal[]>
 
     if (!res.ok) {
       const body = await res.text()
+      const dead = hubspotApiFailure(customerId, res.status, body)
+      if (dead) throw dead
       throw new Error(`HubSpot deals fetch failed (${res.status}): ${body}`)
     }
 
@@ -90,6 +101,7 @@ export function hubspotDealLink(hubId: string, dealId: string): string {
 // Returns null for 404, which is normal rather than exceptional: a deal can be
 // deleted between HubSpot emitting the event and us processing it.
 export async function fetchDeal(
+  customerId: string,
   accessToken: string,
   dealId: string
 ): Promise<HubSpotDeal | null> {
@@ -103,6 +115,10 @@ export async function fetchDeal(
   if (res.status === 404) return null
   if (!res.ok) {
     const body = await res.text()
+    // 404 is handled above and deliberately never reaches here: a deleted deal
+    // is normal, and must not be mistaken for a broken connection.
+    const dead = hubspotApiFailure(customerId, res.status, body)
+    if (dead) throw dead
     throw new Error(`HubSpot deal fetch failed (${res.status}): ${body}`)
   }
 

@@ -155,7 +155,7 @@ async function handleHubSpotEvent(job: JobRecord): Promise<void> {
   // useful alert also needs the deal's name and owner.
   const accessToken = await getValidHubSpotToken(customerId)
   const [deal, ownerMap] = await Promise.all([
-    fetchDeal(accessToken, dealId),
+    fetchDeal(customerId, accessToken, dealId),
     fetchOwnerMap(accessToken),
   ])
 

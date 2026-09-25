@@ -26,20 +26,30 @@ export default async function DashboardPage({
     await Promise.all([
       supabase
         .from('hubspot_connections')
-        .select('hub_id')
+        .select('hub_id, status, last_error')
         .eq('customer_id', session.customerId)
         .maybeSingle(),
       supabase
         .from('slack_connections')
-        .select('channel_name, team_name')
+        .select('channel_name, team_name, status, last_error')
         .eq('customer_id', session.customerId)
         .maybeSingle(),
       supabase
         .from('notion_connections')
-        .select('workspace_name')
+        .select('workspace_name, status, last_error')
         .eq('customer_id', session.customerId)
         .maybeSingle(),
     ])
+
+  // A connection row that exists but is flagged is the state the dashboard
+  // previously could not show at all: it rendered "Connected" in green while
+  // every workflow using it was failing.
+  function health(row: { status?: string | null; last_error?: string | null } | null) {
+    return {
+      needsReauth: row?.status === 'needs_reauth',
+      message: row?.last_error ?? null,
+    }
+  }
 
   let flash: { type: 'success' | 'error'; message: string } | null = null
   if (connected === 'hubspot') {
@@ -69,13 +79,23 @@ export default async function DashboardPage({
   return (
     <DashboardClient
       email={session.email}
-      hubspot={hubspotConn ? { hubId: hubspotConn.hub_id } : null}
+      hubspot={
+        hubspotConn ? { hubId: hubspotConn.hub_id, health: health(hubspotConn) } : null
+      }
       slack={
         slackConn
-          ? { channelName: slackConn.channel_name, teamName: slackConn.team_name }
+          ? {
+              channelName: slackConn.channel_name,
+              teamName: slackConn.team_name,
+              health: health(slackConn),
+            }
           : null
       }
-      notion={notionConn ? { workspaceName: notionConn.workspace_name } : null}
+      notion={
+        notionConn
+          ? { workspaceName: notionConn.workspace_name, health: health(notionConn) }
+          : null
+      }
       flash={flash}
     />
   )

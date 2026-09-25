@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { getCustomerSession } from '@/lib/session'
 import { getSupabaseAdmin } from '@/lib/config'
 import { decrypt } from '@/lib/crypto'
+import { sendSlackMessage } from '@/lib/workflow-actions'
+import { ConnectionError, markConnectionUnhealthy } from '@/lib/connection-health'
 
 export async function POST() {
   const session = await getCustomerSession()
@@ -20,26 +22,28 @@ export async function POST() {
     return NextResponse.json({ error: 'No Slack connection found' }, { status: 404 })
   }
 
-  // POST the test message directly to the incoming webhook URL
+  // Goes through the same sender the workflows use, rather than repeating the
+  // POST here. That makes this button a genuine health probe in both
+  // directions: a success clears a stale needs_reauth flag, and a dead webhook
+  // is recorded rather than only logged — which matters because this is the
+  // first thing a customer clicks when they suspect something is wrong.
   try {
-    const slackRes = await fetch(decrypt(conn.webhook_url), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        text: '✅ Workliq is connected to this channel.',
-      }),
-    })
-
-    // Slack incoming webhooks return plain text "ok" on success, not JSON
-    if (!slackRes.ok) {
-      const body = await slackRes.text()
-      console.error('Slack test message failed:', slackRes.status, body)
-      return NextResponse.json({ error: 'Slack rejected the message' }, { status: 502 })
-    }
+    await sendSlackMessage(
+      session.customerId,
+      decrypt(conn.webhook_url),
+      '✅ Workliq is connected to this channel.'
+    )
 
     return NextResponse.json({ success: true })
   } catch (err) {
-    console.error('Slack test message network error:', err)
-    return NextResponse.json({ error: 'Failed to reach Slack' }, { status: 502 })
+    if (err instanceof ConnectionError) {
+      await markConnectionUnhealthy(err)
+      // The customer is looking at the screen right now, so hand them the
+      // actionable sentence instead of a generic rejection.
+      return NextResponse.json({ error: err.message }, { status: 502 })
+    }
+
+    console.error('Slack test message failed:', err)
+    return NextResponse.json({ error: 'Slack rejected the message' }, { status: 502 })
   }
 }

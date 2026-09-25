@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { runJobs, enqueue } from '@/lib/jobs'
 import { registerJobHandlers } from '@/lib/job-handlers'
+import { runNotificationSweep } from '@/lib/notify'
 
 // The queue worker.
 //
@@ -9,11 +10,11 @@ import { registerJobHandlers } from '@/lib/job-handlers'
 // only place customer-facing side effects (Slack, Notion, outbound webhooks)
 // actually happen.
 //
-// Vercel's cron granularity is one minute, which sets the floor on delivery
-// latency from the queue. Combined with webhook ingestion, that takes end-to-end
-// latency from ~24 hours to roughly a minute. If that ever needs to be seconds,
-// the webhook handler can invoke the worker directly — the queue semantics do
-// not change.
+// This is the backstop, not the fast path. On Hobby, Vercel refuses any cron
+// more frequent than daily (see vercel.json), so delivery latency comes from the
+// webhook receivers draining the queue in `after()` — see lib/scheduling.md.
+// What this run is actually for is everything that missed that: retries whose
+// backoff has elapsed, and jobs enqueued by a path with no request behind it.
 
 export const dynamic = 'force-dynamic'
 // Vercel caps this per plan; the worker's own budget stays below it so jobs are
@@ -49,6 +50,11 @@ export async function GET(req: Request) {
     }).catch(() => {})
   }
 
+  // The digest is deliberately downstream of the drain in the same request: a
+  // connection that just died gets reported in this run rather than waiting a
+  // further day for the next one.
+  const notified = await runNotificationSweep()
+
   const ms = Date.now() - startedAt
   if (result.claimed > 0) {
     console.log(
@@ -56,5 +62,5 @@ export async function GET(req: Request) {
     )
   }
 
-  return NextResponse.json({ ok: true, ...result, durationMs: ms })
+  return NextResponse.json({ ok: true, ...result, notified, durationMs: ms })
 }

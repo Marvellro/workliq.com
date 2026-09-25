@@ -2,8 +2,8 @@ import { NextResponse } from 'next/server'
 import { getCustomerSession } from '@/lib/session'
 import { getSupabaseAdmin } from '@/lib/config'
 import { decrypt } from '@/lib/crypto'
-
-const NOTION_VERSION = '2022-06-28'
+import { createNotionPage } from '@/lib/workflow-actions'
+import { ConnectionError, markConnectionUnhealthy } from '@/lib/connection-health'
 
 export async function POST() {
   const session = await getCustomerSession()
@@ -26,40 +26,36 @@ export async function POST() {
   // Insert a clearly-labelled sample row so the customer can see it immediately
   // in their Notion database and confirm the connection is working.
   // Status is set to "New" here — same as what the cron job will do on real rows.
+  //
+  // Goes through the same writer the workflows use. See the Slack test route
+  // for why: this button is the customer's own health check, so it should
+  // update the recorded health rather than sit outside it.
   try {
     const today = new Date().toISOString().split('T')[0] // YYYY-MM-DD
 
-    const pageRes = await fetch('https://api.notion.com/v1/pages', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${decrypt(conn.access_token)}`,
-        'Content-Type': 'application/json',
-        'Notion-Version': NOTION_VERSION,
-      },
-      body: JSON.stringify({
-        parent: { database_id: conn.database_id },
-        properties: {
-          'Deal Name':    { title:     [{ text: { content: 'Test Deal (Workliq)' } }] },
-          'Stage':        { select:    { name: 'Demo Scheduled' } },
-          'Owner':        { rich_text: [{ text: { content: 'Workliq Test' } }] },
-          'Days Stale':   { number:    7 },
-          'Threshold':    { select:    { name: '7' } },
-          'Flagged On':   { date:      { start: today } },
-          'HubSpot Link': { url:       'https://app.hubspot.com' },
-          'Status':       { select:    { name: 'New' } },
-        },
-      }),
-    })
-
-    if (!pageRes.ok) {
-      const errText = await pageRes.text()
-      console.error('Notion test row creation failed:', pageRes.status, errText)
-      return NextResponse.json({ error: 'Notion rejected the request' }, { status: 502 })
-    }
+    await createNotionPage(
+      session.customerId,
+      { access_token: decrypt(conn.access_token), database_id: conn.database_id },
+      {
+        'Deal Name':    { title:     [{ text: { content: 'Test Deal (Workliq)' } }] },
+        'Stage':        { select:    { name: 'Demo Scheduled' } },
+        'Owner':        { rich_text: [{ text: { content: 'Workliq Test' } }] },
+        'Days Stale':   { number:    7 },
+        'Threshold':    { select:    { name: '7' } },
+        'Flagged On':   { date:      { start: today } },
+        'HubSpot Link': { url:       'https://app.hubspot.com' },
+        'Status':       { select:    { name: 'New' } },
+      }
+    )
 
     return NextResponse.json({ success: true })
   } catch (err) {
-    console.error('Notion test row network error:', err)
-    return NextResponse.json({ error: 'Failed to reach Notion' }, { status: 502 })
+    if (err instanceof ConnectionError) {
+      await markConnectionUnhealthy(err)
+      return NextResponse.json({ error: err.message }, { status: 502 })
+    }
+
+    console.error('Notion test row creation failed:', err)
+    return NextResponse.json({ error: 'Notion rejected the request' }, { status: 502 })
   }
 }

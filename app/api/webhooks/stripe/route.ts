@@ -3,6 +3,7 @@ import Stripe from 'stripe'
 import { getSupabaseAdmin } from '@/lib/config'
 import { enqueue, runJobs } from '@/lib/jobs'
 import { registerJobHandlers } from '@/lib/job-handlers'
+import { runNotificationSweep } from '@/lib/notify'
 import { recordAudit, clientIp, userAgent } from '@/lib/audit'
 
 // Inbound Stripe webhooks.
@@ -123,6 +124,7 @@ export async function POST(req: Request) {
     try {
       registerJobHandlers()
       await runJobs({ budgetMs: 30_000, batchSize: 10 })
+      await runNotificationSweep()
     } catch (err) {
       console.error('[webhooks/stripe] post-response drain failed:', err)
     }

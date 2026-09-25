@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto'
 import { getSupabaseAdmin } from './config'
+import { ConnectionError, markConnectionUnhealthy } from './connection-health'
 
 // Client for the durable job queue (see 008_job_queue.sql).
 //
@@ -92,6 +93,11 @@ export async function enqueue(opts: EnqueueOptions): Promise<string | null> {
  * Throw `PermanentJobError` for failures retrying cannot fix (a deleted
  * endpoint, a malformed config). Anything else is treated as transient and
  * retried with backoff.
+ *
+ * Throw `ConnectionError` for the subset of those that the customer can fix: a
+ * dead OAuth grant, a revoked webhook. Those stop retrying like any permanent
+ * failure and additionally flag the connection, so the customer can be told
+ * which one to reconnect instead of discovering it weeks later.
  */
 export type JobHandler = (job: JobRecord) => Promise<void>
 
@@ -188,8 +194,18 @@ export async function runJobs(options: {
         await supabase.rpc('complete_job', { p_id: job.id })
         result.succeeded++
       } catch (err) {
-        const permanent = err instanceof PermanentJobError
+        // A dead credential is permanent by the same logic as any other
+        // unfixable failure: five backoff-spaced retries against a refresh
+        // token the provider has already invalidated only delay the inevitable.
+        const permanent = err instanceof PermanentJobError || err instanceof ConnectionError
         const message = err instanceof Error ? err.message : String(err)
+
+        // Flag the connection before recording the job outcome. This is the
+        // record the customer is eventually shown, and it must survive a
+        // fail_job that itself errors.
+        if (err instanceof ConnectionError) {
+          await markConnectionUnhealthy(err)
+        }
 
         const { data: status } = await supabase.rpc('fail_job', {
           p_id: job.id,

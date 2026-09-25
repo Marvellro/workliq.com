@@ -1,6 +1,11 @@
 import { safePostJson } from './safe-fetch'
 import { signWebhookPayload, generateWebhookSecret } from './crypto'
 import { getSupabaseAdmin } from './config'
+import {
+  slackWebhookFailure,
+  notionFailure,
+  recordConnectionSuccess,
+} from './connection-health'
 
 // Action executors for the workflow engine. These are intentionally separate
 // from the postSlackAlert/createNotionRow helpers inside stale-deals/route.ts —
@@ -18,7 +23,15 @@ const NOTION_VERSION = '2022-06-28'
 export type SlackConnection = { webhook_url: string }
 export type NotionConnection = { access_token: string; database_id: string }
 
-export async function sendSlackMessage(webhookUrl: string, text: string): Promise<void> {
+// customerId is here only so a failure can be attributed to a connection. It is
+// not used to look anything up — the caller has already decrypted and passed
+// the credential — but without it a dead webhook is just an error string with
+// no owner, which is how these used to disappear.
+export async function sendSlackMessage(
+  customerId: string,
+  webhookUrl: string,
+  text: string
+): Promise<void> {
   const res = await fetch(webhookUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -28,8 +41,14 @@ export async function sendSlackMessage(webhookUrl: string, text: string): Promis
   // Incoming webhooks always return HTTP 200 with text body "ok" on success.
   if (!res.ok) {
     const body = await res.text()
+
+    const dead = slackWebhookFailure(customerId, res.status, body)
+    if (dead) throw dead
+
     throw new Error(`Slack webhook returned ${res.status}: ${body}`)
   }
+
+  await recordConnectionSuccess(customerId, 'slack')
 }
 
 // properties uses Notion's page-property format directly, e.g.
@@ -37,6 +56,7 @@ export async function sendSlackMessage(webhookUrl: string, text: string): Promis
 // Callers build this per trigger type since not every property applies to
 // every event (e.g. "Days Stale" only makes sense for the stale trigger).
 export async function createNotionPage(
+  customerId: string,
   conn: NotionConnection,
   properties: Record<string, unknown>
 ): Promise<void> {
@@ -55,8 +75,17 @@ export async function createNotionPage(
 
   if (!res.ok) {
     const body = await res.text()
+
+    // 404 is the one worth calling out: it does not mean Notion is down, it
+    // means the database we write into is gone. That reads as a transient
+    // "not found" and is in fact terminal until the customer reconnects.
+    const dead = notionFailure(customerId, res.status, body)
+    if (dead) throw dead
+
     throw new Error(`Notion page creation returned ${res.status}: ${body}`)
   }
+
+  await recordConnectionSuccess(customerId, 'notion')
 }
 
 /**
