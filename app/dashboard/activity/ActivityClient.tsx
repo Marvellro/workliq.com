@@ -10,7 +10,8 @@ type Run = {
   status: 'pending' | 'success' | 'failed'
   error_message: string | null
   fired_at: string
-  workflows: { name: string; action_type: string } | null
+  step_index: number
+  workflows: { name: string; steps: unknown[] | null } | null
 }
 
 type QueueItem = {
@@ -50,6 +51,11 @@ function formatUsd(amount: number): string {
   if (amount === 0) return '$0.00'
   if (amount < 0.01) return `$${amount.toFixed(4)}`
   return `$${amount.toFixed(2)}`
+}
+
+function stepCount(run: Run): number {
+  const steps = run.workflows?.steps
+  return Array.isArray(steps) && steps.length > 0 ? steps.length : 1
 }
 
 const STATUS_STYLE: Record<string, { bg: string; fg: string; label: string }> = {
@@ -302,6 +308,14 @@ export default function ActivityClient({ initialRuns, initialQueue, initialSpend
                       <div style={{ minWidth: 0 }}>
                         <p style={{ fontSize: 14, fontWeight: 600, color: '#0D0F1A', marginBottom: 3 }}>
                           {run.workflows?.name ?? 'Deleted workflow'}
+                          {/* A multi-step workflow records one run per step, so
+                              without this a three-step workflow shows three
+                              identical-looking rows. */}
+                          {stepCount(run) > 1 && (
+                            <span style={{ fontSize: 12, fontWeight: 500, color: '#6B7280' }}>
+                              {' '}· step {run.step_index + 1} of {stepCount(run)}
+                            </span>
+                          )}
                         </p>
                         <p style={{ fontSize: 13, color: '#6B7280' }}>
                           {describeTrigger(run.trigger_fingerprint, run.deal_id)} · deal {run.deal_id}

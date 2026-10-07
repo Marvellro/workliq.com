@@ -7,6 +7,18 @@ type ActionType = 'slack_message' | 'notion_row' | 'webhook' | 'ai_step'
 type AITask = 'summarize' | 'draft_followup' | 'score_lead' | 'next_action'
 type ConditionOperator = 'equals' | 'not_equals' | 'contains'
 
+type StepConfig = {
+  message_template?: string
+  url?: string
+  ai_task?: AITask
+  ai_instructions?: string
+  deliver_to?: 'slack_message' | 'notion_row'
+}
+
+type Step = { action_type: ActionType; action_config: StepConfig }
+
+const MAX_STEPS = 10
+
 type Workflow = {
   id: string
   name: string
@@ -15,14 +27,10 @@ type Workflow = {
   condition_property: string | null
   condition_operator: ConditionOperator | null
   condition_value: string | null
-  action_type: ActionType
-  action_config: {
-    message_template?: string
-    url?: string
-    ai_task?: AITask
-    ai_instructions?: string
-    deliver_to?: 'slack_message' | 'notion_row'
-  }
+  steps: Step[]
+  /** Legacy single action, superseded by steps. Still present on old rows. */
+  action_type: ActionType | null
+  action_config: StepConfig | null
   enabled: boolean
 }
 
@@ -52,6 +60,25 @@ const AI_TASK_LABELS: Record<AITask, string> = {
   next_action: 'Recommend the next action',
 }
 
+/** Mirrors lib/workflow-steps.ts — old rows still carry the single action. */
+function stepsOf(w: Workflow): Step[] {
+  if (w.steps?.length) return w.steps
+  if (w.action_type) return [{ action_type: w.action_type, action_config: w.action_config ?? {} }]
+  return []
+}
+
+function describeStep(s: Step): string {
+  if (s.action_type === 'ai_step' && s.action_config.ai_task) {
+    const task = AI_TASK_LABELS[s.action_config.ai_task].toLowerCase()
+    // deliver_to only appears on workflows built before steps existed, where
+    // the AI step carried its own delivery.
+    return s.action_config.deliver_to
+      ? `AI: ${task}, posted to ${s.action_config.deliver_to === 'notion_row' ? 'Notion' : 'Slack'}`
+      : `AI: ${task}`
+  }
+  return ACTION_LABELS[s.action_type]
+}
+
 function summarize(w: Workflow): string {
   let trigger = TRIGGER_LABELS[w.trigger_type]
   if (w.trigger_type === 'deal_stage_changed' && w.trigger_config.to_stage) {
@@ -65,11 +92,7 @@ function summarize(w: Workflow): string {
     const opLabel = w.condition_operator === 'not_equals' ? 'is not' : w.condition_operator === 'contains' ? 'contains' : 'is'
     condition = `, if ${w.condition_property} ${opLabel} "${w.condition_value}"`
   }
-  let action: string = ACTION_LABELS[w.action_type]
-  if (w.action_type === 'ai_step' && w.action_config.ai_task) {
-    const where = w.action_config.deliver_to === 'notion_row' ? 'Notion' : 'Slack'
-    action = `AI: ${AI_TASK_LABELS[w.action_config.ai_task].toLowerCase()}, posted to ${where}`
-  }
+  const action = stepsOf(w).map(describeStep).join(' → ')
   // TRIGGER_LABELS are written to stand alone ("A deal is created"), but here
   // they are interpolated mid-sentence after "When". Lowercasing the first
   // letter at the join keeps both readings correct without a second set of
@@ -207,6 +230,54 @@ export default function WorkflowsClient({ initialWorkflows, slackConnected, noti
 
 // ── New workflow form ───────────────────────────────────────────────────────
 
+/**
+ * One step as the form holds it.
+ *
+ * Every field is kept per step rather than only the ones the current action
+ * uses, so switching a step's type and switching back does not silently discard
+ * what was typed.
+ */
+type StepDraft = {
+  action_type: ActionType
+  aiTask: AITask
+  aiInstructions: string
+  messageTemplate: string
+  webhookUrl: string
+}
+
+function newStep(): StepDraft {
+  return {
+    action_type: 'slack_message',
+    aiTask: 'summarize',
+    aiInstructions: '',
+    messageTemplate: '',
+    webhookUrl: '',
+  }
+}
+
+/**
+ * Narrows a draft to what the API stores.
+ *
+ * `deliver_to` is deliberately never written. It is the pre-steps shape, where
+ * an AI step had to carry its own delivery channel; a workflow built here says
+ * that with a step instead.
+ */
+function toStep(d: StepDraft): Step {
+  const action_config: StepConfig = {}
+
+  if (d.action_type === 'slack_message' || d.action_type === 'notion_row') {
+    if (d.messageTemplate.trim()) action_config.message_template = d.messageTemplate.trim()
+  }
+  if (d.action_type === 'webhook') action_config.url = d.webhookUrl.trim()
+  if (d.action_type === 'ai_step') {
+    action_config.ai_task = d.aiTask
+    if (d.aiInstructions.trim()) action_config.ai_instructions = d.aiInstructions.trim()
+  }
+
+  return { action_type: d.action_type, action_config }
+}
+
+
 function NewWorkflowForm({
   slackConnected,
   notionConnected,
@@ -223,12 +294,7 @@ function NewWorkflowForm({
   const [conditionProperty, setConditionProperty] = useState('')
   const [conditionOperator, setConditionOperator] = useState<ConditionOperator>('equals')
   const [conditionValue, setConditionValue] = useState('')
-  const [actionType, setActionType] = useState<ActionType>('slack_message')
-  const [aiTask, setAiTask] = useState<AITask>('summarize')
-  const [aiInstructions, setAiInstructions] = useState('')
-  const [aiDeliverTo, setAiDeliverTo] = useState<'slack_message' | 'notion_row'>('slack_message')
-  const [messageTemplate, setMessageTemplate] = useState('')
-  const [webhookUrl, setWebhookUrl] = useState('')
+  const [steps, setSteps] = useState<StepDraft[]>([newStep()])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -240,24 +306,32 @@ function NewWorkflowForm({
     if (triggerType === 'deal_stale' && (!thresholdDays || Number(thresholdDays) <= 0)) {
       return setError('Enter a number of days for the staleness threshold.')
     }
-    if (actionType === 'webhook' && !webhookUrl.trim().startsWith('https://')) {
-      return setError('Webhook URL must start with https://')
-    }
-    if (actionType === 'slack_message' && !slackConnected) {
-      return setError('Connect Slack first — see Connections.')
-    }
-    if (actionType === 'ai_step') {
-      if (aiDeliverTo === 'slack_message' && !slackConnected) {
-        setError('Connect Slack first — that is where the AI result gets posted.')
-        return
+    for (let i = 0; i < steps.length; i++) {
+      const d = steps[i]
+      const at = `Step ${i + 1}`
+
+      if (d.action_type === 'webhook' && !d.webhookUrl.trim().startsWith('https://')) {
+        return setError(`${at}: webhook URL must start with https://`)
       }
-      if (aiDeliverTo === 'notion_row' && !notionConnected) {
-        setError('Connect Notion first — that is where the AI result gets posted.')
-        return
+      if (d.action_type === 'slack_message' && !slackConnected) {
+        return setError(`${at} sends to Slack — connect Slack first, see Connections.`)
       }
-    }
-    if (actionType === 'notion_row' && !notionConnected) {
-      return setError('Connect Notion first — see Connections.')
+      if (d.action_type === 'notion_row' && !notionConnected) {
+        return setError(`${at} writes to Notion — connect Notion first, see Connections.`)
+      }
+
+      // An AI step whose output nothing uses is a call you pay for that does
+      // nothing. Caught here rather than discovered on the invoice.
+      if (d.action_type === 'ai_step') {
+        const ref = `{{step${i + 1}}}`
+        const used = steps.slice(i + 1).some((later) => later.messageTemplate.includes(ref))
+        if (!used) {
+          return setError(
+            `${at} writes something with AI, but no later step uses it. ` +
+              `Add a step after it and put ${ref} in the message.`
+          )
+        }
+      }
     }
 
     setSaving(true)
@@ -265,14 +339,6 @@ function NewWorkflowForm({
     if (triggerType === 'deal_stage_changed' && toStage.trim()) trigger_config.to_stage = toStage.trim()
     if (triggerType === 'deal_stale') trigger_config.threshold_days = Number(thresholdDays)
 
-    const action_config: Record<string, unknown> = {}
-    if (actionType === 'slack_message' && messageTemplate.trim()) action_config.message_template = messageTemplate.trim()
-    if (actionType === 'webhook') action_config.url = webhookUrl.trim()
-    if (actionType === 'ai_step') {
-      action_config.ai_task = aiTask
-      action_config.deliver_to = aiDeliverTo
-      if (aiInstructions.trim()) action_config.ai_instructions = aiInstructions.trim()
-    }
 
     const res = await fetch('/api/workflows', {
       method: 'POST',
@@ -284,8 +350,7 @@ function NewWorkflowForm({
         condition_property: conditionProperty || null,
         condition_operator: conditionProperty ? conditionOperator : null,
         condition_value: conditionProperty ? conditionValue.trim() || null : null,
-        action_type: actionType,
-        action_config,
+        steps: steps.map(toStep),
       }),
     })
 
@@ -296,6 +361,10 @@ function NewWorkflowForm({
     }
     const { workflow } = await res.json()
     onCreated(workflow)
+  }
+
+  function updateStep(index: number, patch: Partial<StepDraft>) {
+    setSteps(steps.map((s, i) => (i === index ? { ...s, ...patch } : s)))
   }
 
   const labelStyle: React.CSSProperties = { fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: '0.375rem' }
@@ -355,76 +424,130 @@ function NewWorkflowForm({
 
       <div style={fieldWrap}>
         <label style={labelStyle}>Then…</label>
-        <select style={inputStyle} value={actionType} onChange={(e) => setActionType(e.target.value as ActionType)}>
-          <option value="slack_message">Send a Slack message {!slackConnected && '(connect Slack first)'}</option>
-          <option value="notion_row">Add a Notion row {!notionConnected && '(connect Notion first)'}</option>
-          <option value="webhook">Call a webhook</option>
-          <option value="ai_step">Ask AI to write something</option>
-        </select>
-      </div>
+        <p style={{ fontSize: 12, color: '#9CA3AF', margin: '0 0 0.6rem' }}>
+          Steps run in order. If one fails, the workflow stops there and retries
+          from that step — the ones before it are not repeated.
+        </p>
 
-      {actionType === 'ai_step' && (
-        <>
-          <div style={fieldWrap}>
-            <label style={labelStyle}>What should the AI do?</label>
-            <select style={inputStyle} value={aiTask} onChange={(e) => setAiTask(e.target.value as AITask)}>
-              {(Object.keys(AI_TASK_LABELS) as AITask[]).map((t) => (
-                <option key={t} value={t}>{AI_TASK_LABELS[t]}</option>
-              ))}
-            </select>
-          </div>
+        {steps.map((step, i) => (
+          <div
+            key={i}
+            style={{
+              border: '1px solid #E5E7EB',
+              borderRadius: 10,
+              padding: '0.9rem 1rem',
+              marginBottom: '0.6rem',
+              background: '#F9FAFB',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.6rem' }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: '#6B7280', letterSpacing: '.04em' }}>
+                STEP {i + 1}
+              </span>
+              {steps.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => setSteps(steps.filter((_, n) => n !== i))}
+                  style={{ fontSize: 12, color: '#6B7280', background: 'none', border: '1px solid #E5E7EB', borderRadius: 6, padding: '0.2rem 0.55rem', cursor: 'pointer' }}
+                >
+                  Remove
+                </button>
+              )}
+            </div>
 
-          <div style={fieldWrap}>
-            <label style={labelStyle}>Post the result to</label>
             <select
-              style={inputStyle}
-              value={aiDeliverTo}
-              onChange={(e) => setAiDeliverTo(e.target.value as 'slack_message' | 'notion_row')}
+              style={{ ...inputStyle, marginBottom: '0.7rem' }}
+              value={step.action_type}
+              onChange={(e) => updateStep(i, { action_type: e.target.value as ActionType })}
             >
-              <option value="slack_message">Slack {!slackConnected && '(connect Slack first)'}</option>
-              <option value="notion_row">Notion {!notionConnected && '(connect Notion first)'}</option>
+              <option value="slack_message">Send a Slack message {!slackConnected && '(connect Slack first)'}</option>
+              <option value="notion_row">Add a Notion row {!notionConnected && '(connect Notion first)'}</option>
+              <option value="webhook">Call a webhook</option>
+              <option value="ai_step">Ask AI to write something</option>
             </select>
-          </div>
 
-          <div style={fieldWrap}>
-            <label style={labelStyle}>Anything specific to tell it? (optional)</label>
-            <textarea
-              style={{ ...inputStyle, minHeight: 60, fontFamily: 'inherit', resize: 'vertical' }}
-              value={aiInstructions}
-              onChange={(e) => setAiInstructions(e.target.value)}
-              maxLength={500}
-              placeholder="Keep it under three sentences and mention our Q1 pricing change."
-            />
-            <p style={{ fontSize: 12, color: '#9CA3AF', marginTop: '0.375rem' }}>
-              The AI only sees the deal name, stage, owner and how long it has been quiet —
-              never contact details or note contents. Each run costs a fraction of a cent
-              and counts against your monthly AI budget.
-            </p>
-          </div>
-        </>
-      )}
+            {step.action_type === 'ai_step' && (
+              <>
+                <label style={labelStyle}>What should the AI do?</label>
+                <select
+                  style={{ ...inputStyle, marginBottom: '0.7rem' }}
+                  value={step.aiTask}
+                  onChange={(e) => updateStep(i, { aiTask: e.target.value as AITask })}
+                >
+                  {(Object.keys(AI_TASK_LABELS) as AITask[]).map((t) => (
+                    <option key={t} value={t}>{AI_TASK_LABELS[t]}</option>
+                  ))}
+                </select>
 
-      {actionType === 'slack_message' && (
-        <div style={fieldWrap}>
-          <label style={labelStyle}>Message (optional — leave blank for a default message)</label>
-          <textarea
-            style={{ ...inputStyle, minHeight: 70, fontFamily: 'inherit', resize: 'vertical' }}
-            value={messageTemplate}
-            onChange={(e) => setMessageTemplate(e.target.value)}
-            placeholder="{{deal_name}} moved to {{stage}} — owned by {{owner}}. {{link}}"
-          />
-          <p style={{ fontSize: 12, color: '#9CA3AF', marginTop: '0.375rem' }}>
-            Available placeholders: {'{{deal_name}}'}, {'{{stage}}'}, {'{{owner}}'}, {'{{link}}'}
+                <label style={labelStyle}>Anything specific to tell it? (optional)</label>
+                <textarea
+                  style={{ ...inputStyle, minHeight: 60, fontFamily: 'inherit', resize: 'vertical' }}
+                  value={step.aiInstructions}
+                  onChange={(e) => updateStep(i, { aiInstructions: e.target.value })}
+                  maxLength={500}
+                  placeholder="Keep it under three sentences and mention our Q1 pricing change."
+                />
+                <p style={{ fontSize: 12, color: '#9CA3AF', marginTop: '0.375rem' }}>
+                  Writes text for a later step to send — add a Slack or Notion step
+                  after this one and use {`{{step${i + 1}}}`} in its message. The AI only
+                  sees the deal name, stage, owner and how long it has been quiet, never
+                  contact details or note contents.
+                </p>
+              </>
+            )}
+
+            {(step.action_type === 'slack_message' || step.action_type === 'notion_row') && (
+              <>
+                <label style={labelStyle}>
+                  {step.action_type === 'slack_message'
+                    ? 'Message (optional — leave blank for a default message)'
+                    : 'Notes column (optional)'}
+                </label>
+                <textarea
+                  style={{ ...inputStyle, minHeight: 70, fontFamily: 'inherit', resize: 'vertical' }}
+                  value={step.messageTemplate}
+                  onChange={(e) => updateStep(i, { messageTemplate: e.target.value })}
+                  placeholder={
+                    i > 0
+                      ? `{{step${i}}}`
+                      : '{{deal_name}} moved to {{stage}} — owned by {{owner}}. {{link}}'
+                  }
+                />
+                <p style={{ fontSize: 12, color: '#9CA3AF', marginTop: '0.375rem' }}>
+                  Placeholders: {'{{deal_name}}'}, {'{{stage}}'}, {'{{owner}}'}, {'{{link}}'}
+                  {i > 0 && <> — and {Array.from({ length: i }, (_, n) => `{{step${n + 1}}}`).join(', ')} for what earlier steps produced</>}
+                </p>
+              </>
+            )}
+
+            {step.action_type === 'webhook' && (
+              <>
+                <label style={labelStyle}>Webhook URL</label>
+                <input
+                  style={inputStyle}
+                  value={step.webhookUrl}
+                  onChange={(e) => updateStep(i, { webhookUrl: e.target.value })}
+                  placeholder="https://your-endpoint.example.com/hook"
+                />
+              </>
+            )}
+          </div>
+        ))}
+
+        {steps.length < MAX_STEPS ? (
+          <button
+            type="button"
+            onClick={() => setSteps([...steps, newStep()])}
+            style={{ fontSize: 13, fontWeight: 500, color: '#1A56DB', background: 'none', border: '1px dashed #C7D7F5', borderRadius: 8, padding: '0.5rem 0.9rem', cursor: 'pointer', width: '100%' }}
+          >
+            + Add a step
+          </button>
+        ) : (
+          <p style={{ fontSize: 12, color: '#9CA3AF', margin: 0 }}>
+            {MAX_STEPS} steps is the maximum.
           </p>
-        </div>
-      )}
-
-      {actionType === 'webhook' && (
-        <div style={fieldWrap}>
-          <label style={labelStyle}>Webhook URL</label>
-          <input style={inputStyle} value={webhookUrl} onChange={(e) => setWebhookUrl(e.target.value)} placeholder="https://your-endpoint.example.com/hook" />
-        </div>
-      )}
+        )}
+      </div>
 
       {error && (
         <div style={{ fontSize: 13, color: '#991B1B', background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '0.6rem 0.85rem', marginBottom: '1rem' }}>

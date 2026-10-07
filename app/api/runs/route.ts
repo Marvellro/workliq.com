@@ -20,7 +20,7 @@ export async function GET(req: Request) {
   const [runs, queued, spend, entitlements, workflowCount] = await Promise.all([
     supabase
       .from('workflow_runs')
-      .select('id, workflow_id, deal_id, trigger_fingerprint, status, error_message, fired_at, workflows(name, action_type)')
+      .select('id, workflow_id, deal_id, trigger_fingerprint, step_index, status, error_message, fired_at, workflows(name, steps)')
       .eq('customer_id', session.customerId)
       .order('fired_at', { ascending: false })
       .limit(limit),

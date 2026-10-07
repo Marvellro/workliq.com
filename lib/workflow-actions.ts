@@ -20,6 +20,40 @@ import {
 
 const NOTION_VERSION = '2022-06-28'
 
+/** Longest response excerpt worth putting in front of a customer. */
+const MAX_QUOTED_BODY = 200
+
+/**
+ * Turns a failed response body into something worth reading.
+ *
+ * Error text goes into `workflow_runs.error_message`, which is what a customer
+ * reads in the activity feed at exactly the moment something has broken. The
+ * previous code sliced the raw body to 500 characters regardless of what it
+ * was, so a 404 from any endpoint that serves an HTML error page filled that
+ * field with `<!DOCTYPE html><html lang="en" class="geist_a715…`.
+ *
+ * Markup is dropped entirely rather than stripped: for an HTML error page the
+ * status code already carries the whole message, and a de-tagged page is just
+ * navigation text. An API returning JSON or plain text usually says something
+ * genuinely useful, so that is kept, collapsed and short.
+ */
+export function summariseResponseBody(body: string): string {
+  const trimmed = body.trim()
+  if (!trimmed) return ''
+  if (trimmed.startsWith('<')) return ''
+
+  const collapsed = trimmed.replace(/\s+/g, ' ')
+  return collapsed.length > MAX_QUOTED_BODY
+    ? `${collapsed.slice(0, MAX_QUOTED_BODY)}…`
+    : collapsed
+}
+
+/** `Webhook returned 404` when there is nothing useful to add. */
+function failureMessage(label: string, status: number, body: string): string {
+  const detail = summariseResponseBody(body)
+  return detail ? `${label} returned ${status}: ${detail}` : `${label} returned ${status}`
+}
+
 export type SlackConnection = { webhook_url: string }
 export type NotionConnection = { access_token: string; database_id: string }
 
@@ -45,7 +79,7 @@ export async function sendSlackMessage(
     const dead = slackWebhookFailure(customerId, res.status, body)
     if (dead) throw dead
 
-    throw new Error(`Slack webhook returned ${res.status}: ${body}`)
+    throw new Error(failureMessage('Slack webhook', res.status, body))
   }
 
   await recordConnectionSuccess(customerId, 'slack')
@@ -82,7 +116,7 @@ export async function createNotionPage(
     const dead = notionFailure(customerId, res.status, body)
     if (dead) throw dead
 
-    throw new Error(`Notion page creation returned ${res.status}: ${body}`)
+    throw new Error(failureMessage('Notion page creation', res.status, body))
   }
 
   await recordConnectionSuccess(customerId, 'notion')
@@ -154,6 +188,6 @@ export async function callWebhook(
   // Unlike Slack's incoming webhooks, arbitrary customer endpoints may return
   // any 2xx on success — we only treat non-2xx as a genuine failure.
   if (!res.ok) {
-    throw new Error(`Webhook returned ${res.status}: ${res.body.slice(0, 500)}`)
+    throw new Error(failureMessage('Webhook', res.status, res.body))
   }
 }

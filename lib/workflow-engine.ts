@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { HubSpotDeal } from './hubspot-deals'
+import type { WorkflowStep, StepConfig } from './workflow-steps'
 import { enqueue } from './jobs'
 import type { ActionPayload } from './workflow-execute'
 
@@ -17,15 +18,12 @@ export type WorkflowRow = {
   condition_property: string | null
   condition_operator: ConditionOperator | null
   condition_value: string | null
-  action_type: ActionType
-  action_config: {
-    message_template?: string
-    url?: string
-    // ai_step:
-    ai_task?: 'summarize' | 'draft_followup' | 'score_lead' | 'next_action'
-    ai_instructions?: string
-    deliver_to?: 'slack_message' | 'notion_row'
-  }
+  /** Ordered actions. Source of truth since 016 — see lib/workflow-steps.ts. */
+  steps: WorkflowStep[]
+  /** LEGACY, superseded by steps[0]. Nullable since 016; no longer written. */
+  action_type: ActionType | null
+  /** LEGACY, superseded by steps[0]. */
+  action_config: StepConfig | null
   enabled: boolean
 }
 
