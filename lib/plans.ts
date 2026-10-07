@@ -202,42 +202,67 @@ export async function getEntitlements(customerId: string): Promise<Entitlements>
 }
 
 /**
- * Keeps `customers.ai_monthly_budget_usd` in step with the plan.
+ * Resolves the effective AI ceiling for an account.
  *
- * The budget is duplicated onto the customer row rather than derived on every
- * AI call, for two reasons: the AI budget check runs on a hot path and should
- * not join through billing, and it lets an individual account be raised or
- * lowered by hand (a trial, a support gesture) without inventing a new plan.
+ * An override is authoritative in both directions — above the plan default for
+ * a support gesture, below it for an account being throttled. It is a number
+ * someone chose, so it is used as given.
+ */
+export function effectiveAiBudget(
+  override: number | string | null | undefined,
+  plan: PlanId
+): number {
+  if (override === null || override === undefined || override === '') {
+    return PLANS[plan].aiMonthlyBudgetUsd
+  }
+
+  const value = Number(override)
+  // A non-numeric override is a corrupt row, not an instruction. Falling back
+  // to the plan default keeps the account at exactly what it pays for.
+  if (!Number.isFinite(value) || value < 0) {
+    console.warn(`[plans] ignoring unusable ai_budget_override_usd: ${String(override)}`)
+    return PLANS[plan].aiMonthlyBudgetUsd
+  }
+
+  return value
+}
+
+/**
+ * Keeps `customers.ai_monthly_budget_usd` and `customers.plan` in step.
  *
- * Called when a subscription changes. Only raises to the plan default if the
- * current value still equals another plan's default — a manually-set custom
- * budget is left alone, because overwriting a deliberate override on the next
- * billing webhook would be a genuinely baffling bug to diagnose.
+ * The budget is materialised onto the customer row rather than derived on every
+ * AI call because the check runs on a hot path and should not join through
+ * billing to find a number. Plan defaults live in this file, so the database
+ * cannot derive it either — hence a column that something has to write.
+ *
+ * This used to decide whether to write by guessing: a value matching no plan
+ * default must have been set by hand, so leave it alone. The intent was right —
+ * a support gesture of $25 on Starter should survive the next billing webhook —
+ * but inferring intent from the value was wrong in both directions, and both
+ * were live. A customer who bought Starter kept a stale 7.50 against an
+ * advertised $10, and every new signup kept the 5.00 column default forever
+ * while Free is $0.
+ *
+ * So the override is now a column that says so, and this write is
+ * unconditional. `plan` is included because it was never an override field; it
+ * only ever looked like one by sharing the same early return.
  */
 export async function syncAiBudgetToPlan(customerId: string, plan: PlanId): Promise<void> {
   const supabase = getSupabaseAdmin()
 
   const { data: customer, error } = await supabase
     .from('customers')
-    .select('ai_monthly_budget_usd')
+    .select('ai_monthly_budget_usd, ai_budget_override_usd, plan')
     .eq('id', customerId)
     .maybeSingle()
 
   if (error || !customer) return
 
-  const current = Number(customer.ai_monthly_budget_usd)
-  const planDefaults = Object.values(PLANS).map((p) => p.aiMonthlyBudgetUsd)
-  const isUntouched = planDefaults.includes(current)
+  const target = effectiveAiBudget(customer.ai_budget_override_usd, plan)
 
-  if (!isUntouched) {
-    console.log(
-      `[plans] customer ${customerId} has a custom AI budget of ${current}; leaving it alone`
-    )
-    return
-  }
-
-  const target = PLANS[plan].aiMonthlyBudgetUsd
-  if (current === target) return
+  // Still skip the write when nothing would change — but on the actual values
+  // now, not on a guess about where they came from.
+  if (Number(customer.ai_monthly_budget_usd) === target && customer.plan === plan) return
 
   const { error: updateError } = await supabase
     .from('customers')
@@ -246,9 +271,14 @@ export async function syncAiBudgetToPlan(customerId: string, plan: PlanId): Prom
 
   if (updateError) {
     console.error('[plans] failed to sync AI budget:', updateError.message)
-  } else {
-    console.log(`[plans] customer ${customerId} → ${plan} (AI budget ${target})`)
+    return
   }
+
+  const suffix =
+    customer.ai_budget_override_usd === null || customer.ai_budget_override_usd === undefined
+      ? ''
+      : ' (override)'
+  console.log(`[plans] customer ${customerId} → ${plan} (AI budget ${target}${suffix})`)
 }
 
 // ── Limit checks ─────────────────────────────────────────────────────────────

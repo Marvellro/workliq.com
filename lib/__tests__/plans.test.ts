@@ -8,6 +8,7 @@ import {
   hasPriceTable,
   isWithinPeriod,
   ENTITLEMENT_GRACE_HOURS,
+  effectiveAiBudget,
 } from '../plans'
 
 // Pure entitlement logic. The database-backed parts (getEntitlements,
@@ -244,5 +245,63 @@ describe('isWithinPeriod', () => {
     expect(isWithinPeriod('2026-09-22T19:59:03.866Z', Date.parse('2026-09-23T12:00:00Z'))).toBe(
       true
     )
+  })
+})
+
+
+describe('effectiveAiBudget', () => {
+  // Replaces a heuristic that inferred "someone set this by hand" from the
+  // value not matching a plan default. That guess was wrong in both directions
+  // and both were live in production:
+  //
+  //   a customer who bought Starter kept a stale 7.50 against an advertised $10
+  //   every new signup kept the 5.00 column default forever, while Free is $0
+  //
+  // An override is now a column that says so, and these assert it is obeyed
+  // rather than second-guessed.
+
+  it('uses the plan default when there is no override', () => {
+    expect(effectiveAiBudget(null, 'free')).toBe(0)
+    expect(effectiveAiBudget(null, 'starter')).toBe(10)
+    expect(effectiveAiBudget(undefined, 'growth')).toBe(50)
+  })
+
+  it('honours an override above the plan default', () => {
+    // The case the old guard existed to protect: a support gesture must
+    // survive the next billing webhook.
+    expect(effectiveAiBudget(25, 'starter')).toBe(25)
+  })
+
+  it('honours an override below the plan default', () => {
+    // The direction the old guard could not express. Throttling one account
+    // is a legitimate decision, and it has to be distinguishable from a stale
+    // value — which is the whole point of the column.
+    expect(effectiveAiBudget(2, 'growth')).toBe(2)
+    expect(effectiveAiBudget(0, 'starter')).toBe(0)
+  })
+
+  it('accepts the numeric string Postgres returns', () => {
+    // numeric(10,2) comes back as a string through PostgREST, which is how
+    // 7.50 reached the old comparison in the first place.
+    expect(effectiveAiBudget('25.00', 'starter')).toBe(25)
+    expect(effectiveAiBudget('0.00', 'growth')).toBe(0)
+  })
+
+  it('does not let a stale value masquerade as an override', () => {
+    // The regression. 7.50 and 5.00 were preserved indefinitely because they
+    // matched no plan default. With the override null they are now simply
+    // overwritten by what the account is actually on.
+    expect(effectiveAiBudget(null, 'starter')).toBe(10)
+    expect(effectiveAiBudget(null, 'free')).toBe(0)
+  })
+
+  it('falls back to the plan default on an unusable override', () => {
+    // A corrupt row is not an instruction. Falling back leaves the account at
+    // exactly what it pays for rather than at zero or at something arbitrary.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    expect(effectiveAiBudget('not-a-number', 'starter')).toBe(10)
+    expect(effectiveAiBudget(-5, 'growth')).toBe(50)
+    expect(warn).toHaveBeenCalledTimes(2)
+    warn.mockRestore()
   })
 })
