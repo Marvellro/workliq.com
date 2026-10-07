@@ -304,6 +304,43 @@ async function handleStripeEvent(job: JobRecord): Promise<void> {
 }
 
 /**
+ * The subscription's effective period end, as an ISO string.
+ *
+ * Stripe removed `current_period_end` from the Subscription object in API
+ * version 2025-03-31.basil; it lives on each subscription item now, and this
+ * codebase pins 2026-05-27.dahlia. The previous code read it off the
+ * subscription through an `as unknown as` cast, which compiled, returned
+ * undefined at runtime, and wrote null for every real subscription — and a
+ * null period end never expires, so entitlements could not lapse for anyone
+ * who actually paid.
+ *
+ * A subscription can carry items on different intervals, whose periods differ.
+ * Stripe defines the subscription's own period as ending at the EARLIEST item
+ * period end, which is also the right one to gate access on: it is the next
+ * moment something on this subscription must be paid for again.
+ *
+ * Returns null when there are no items with a period. That upserts as null and
+ * therefore never expires — the fail-open direction, chosen for the same reason
+ * as the grace window in lib/plans.ts: wrongly cutting off someone who has paid
+ * is worse than briefly over-granting. It is logged because it should not
+ * happen.
+ */
+export function subscriptionPeriodEnd(subscription: Stripe.Subscription): string | null {
+  const ends = (subscription.items?.data ?? [])
+    .map((item) => item.current_period_end)
+    .filter((v): v is number => typeof v === 'number' && Number.isFinite(v))
+
+  if (ends.length === 0) {
+    console.warn(
+      `[stripe] subscription ${subscription.id} has no item period end — entitlement will not expire`
+    )
+    return null
+  }
+
+  return new Date(Math.min(...ends) * 1000).toISOString()
+}
+
+/**
  * Decides which plan a subscription grants.
  *
  * The price the customer is actually billed for wins over
@@ -395,8 +432,7 @@ async function applySubscription(
   // entitlement lookup stops counting it.
   const status = eventType === 'customer.subscription.deleted' ? 'canceled' : subscription.status
   const { plan, billingPeriod } = resolvePlan(subscription)
-  const periodEndSeconds = (subscription as unknown as { current_period_end?: number })
-    .current_period_end
+  const periodEnd = subscriptionPeriodEnd(subscription)
 
   const { data: saved, error } = await supabase
     .from('subscriptions')
@@ -408,9 +444,7 @@ async function applySubscription(
         plan,
         billing_period: billingPeriod,
         status,
-        current_period_end: periodEndSeconds
-          ? new Date(periodEndSeconds * 1000).toISOString()
-          : null,
+        current_period_end: periodEnd,
         cancel_at_period_end: subscription.cancel_at_period_end ?? false,
         updated_at: new Date().toISOString(),
       },

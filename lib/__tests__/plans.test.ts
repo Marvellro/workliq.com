@@ -6,6 +6,8 @@ import {
   checkActionAllowed,
   planForPriceId,
   hasPriceTable,
+  isWithinPeriod,
+  ENTITLEMENT_GRACE_HOURS,
 } from '../plans'
 
 // Pure entitlement logic. The database-backed parts (getEntitlements,
@@ -174,5 +176,73 @@ describe('planForPriceId', () => {
     expect(planForPriceId('price_late')).toBeNull()
     vi.stubEnv('STRIPE_PRICE_GROWTH_ANNUAL', 'price_late')
     expect(planForPriceId('price_late')).toEqual({ plan: 'growth', billingPeriod: 'annual' })
+  })
+})
+
+
+describe('isWithinPeriod', () => {
+  // Fixed clock: these assert a rule, not what day it happens to be.
+  const NOW = Date.parse('2026-09-30T12:00:00.000Z')
+  const HOUR = 60 * 60 * 1000
+
+  function hoursPast(n: number): string {
+    return new Date(NOW - n * HOUR).toISOString()
+  }
+
+  it('accepts a period that has not ended', () => {
+    expect(isWithinPeriod(new Date(NOW + HOUR).toISOString(), NOW)).toBe(true)
+    expect(isWithinPeriod(new Date(NOW + 30 * 24 * HOUR).toISOString(), NOW)).toBe(true)
+  })
+
+  it('accepts a lapse inside the grace window', () => {
+    // The case this window exists for: Stripe's renewal webhook running late
+    // must not drop a paying customer to Free the moment the period rolls over.
+    expect(isWithinPeriod(hoursPast(1), NOW)).toBe(true)
+    expect(isWithinPeriod(hoursPast(24), NOW)).toBe(true)
+    expect(isWithinPeriod(hoursPast(ENTITLEMENT_GRACE_HOURS - 1), NOW)).toBe(true)
+  })
+
+  it('rejects a lapse past the grace window', () => {
+    expect(isWithinPeriod(hoursPast(ENTITLEMENT_GRACE_HOURS + 1), NOW)).toBe(false)
+    expect(isWithinPeriod(hoursPast(24 * 30), NOW)).toBe(false)
+  })
+
+  it('treats the exact boundary as expired', () => {
+    // end + grace > now, so equality falls on the expired side. Stated as a
+    // test because "48 hours" alone does not say which way the boundary goes.
+    expect(isWithinPeriod(hoursPast(ENTITLEMENT_GRACE_HOURS), NOW)).toBe(false)
+  })
+
+  it('never expires a null end date', () => {
+    // The escape hatch for an indefinite comp. Also the one remaining way an
+    // entitlement can outlive its intent, so it is asserted rather than assumed.
+    expect(isWithinPeriod(null, NOW)).toBe(true)
+    expect(isWithinPeriod(undefined, NOW)).toBe(true)
+    expect(isWithinPeriod('', NOW)).toBe(true)
+  })
+
+  it('treats an unparseable date as expired', () => {
+    // A corrupt row must not be worth more than a valid expired one. The rest
+    // of this module already resolves "cannot determine" to free.
+    expect(isWithinPeriod('not-a-date', NOW)).toBe(false)
+    expect(isWithinPeriod('2026-13-45T99:99:99Z', NOW)).toBe(false)
+  })
+
+  it('accepts a Date as well as a string', () => {
+    expect(isWithinPeriod(new Date(NOW + HOUR), NOW)).toBe(true)
+    expect(isWithinPeriod(new Date(NOW - 72 * HOUR), NOW)).toBe(false)
+  })
+
+  it('rejects the lapse that was live in production', () => {
+    // The regression this was written for: the walkthrough comp ended
+    // 2026-09-22 and was still granting Growth on 2026-09-30, because nothing
+    // compared the date to the clock.
+    expect(isWithinPeriod('2026-09-22T19:59:03.866Z', Date.parse('2026-09-30T12:00:00Z'))).toBe(
+      false
+    )
+    // Still valid the morning after it ended — grace, working as intended.
+    expect(isWithinPeriod('2026-09-22T19:59:03.866Z', Date.parse('2026-09-23T12:00:00Z'))).toBe(
+      true
+    )
   })
 })

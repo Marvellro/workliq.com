@@ -60,6 +60,49 @@ export function isPaidStatus(status: string | null | undefined): boolean {
   return Boolean(status && PAID_STATUSES.has(status))
 }
 
+/**
+ * How long past `current_period_end` a subscription still counts.
+ *
+ * Owned here and passed into `entitlements_for_customer`, so the threshold
+ * exists once rather than in two places that drift.
+ *
+ * Deliberately generous, and deliberately asymmetric. Stripe advances
+ * current_period_end via the renewal webhook; without a window, a webhook that
+ * arrives late drops a genuinely paying customer to Free the moment their
+ * period rolls over. Wrongly denying access to someone who has paid is a worse
+ * failure than briefly over-granting to someone who has not — the same
+ * asymmetry as the AI budget failing closed while the rate limiter fails open.
+ */
+export const ENTITLEMENT_GRACE_HOURS = 48
+
+/**
+ * Whether a subscription period is still current, allowing for grace.
+ *
+ * A null end date never expires: that is the escape hatch for an indefinite
+ * comp, where setting a date is what makes the grant temporary. It is also the
+ * one way an entitlement can still outlive its intent, so it is worth knowing
+ * about when granting one.
+ *
+ * An unparseable date resolves to expired. It means the row is corrupt, and the
+ * rest of this module already treats "cannot determine entitlement" as free.
+ */
+export function isWithinPeriod(
+  currentPeriodEnd: string | Date | null | undefined,
+  now: number = Date.now()
+): boolean {
+  if (currentPeriodEnd === null || currentPeriodEnd === undefined || currentPeriodEnd === '') {
+    return true
+  }
+
+  const endedAt = currentPeriodEnd instanceof Date
+    ? currentPeriodEnd.getTime()
+    : new Date(currentPeriodEnd).getTime()
+
+  if (Number.isNaN(endedAt)) return false
+
+  return endedAt + ENTITLEMENT_GRACE_HOURS * 60 * 60 * 1000 > now
+}
+
 export function planFromId(value: string | null | undefined): PlanId {
   if (value === 'starter' || value === 'growth') return value
   return 'free'
@@ -129,6 +172,7 @@ export async function getEntitlements(customerId: string): Promise<Entitlements>
   try {
     const { data, error } = await getSupabaseAdmin().rpc('entitlements_for_customer', {
       p_customer_id: customerId,
+      p_grace_hours: ENTITLEMENT_GRACE_HOURS,
     })
 
     if (error) {
@@ -138,6 +182,17 @@ export async function getEntitlements(customerId: string): Promise<Entitlements>
 
     const row = Array.isArray(data) ? data[0] : data
     if (!row || !isPaidStatus(row.status)) return PLANS.free
+
+    // The SQL already filters on the period, so this is defence rather than the
+    // primary gate — but it is where the rule is testable, and it means a
+    // direct caller or a future query that forgets the filter cannot hand out
+    // a lapsed plan. This check is why `current_period_end` is returned at all.
+    if (!isWithinPeriod(row.current_period_end)) {
+      console.warn(
+        `[plans] subscription for ${customerId} is past its period end — treating as free`
+      )
+      return PLANS.free
+    }
 
     return PLANS[planFromId(row.plan)]
   } catch (err) {
