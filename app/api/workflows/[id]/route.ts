@@ -51,7 +51,17 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
   const update: Record<string, unknown> = { updated_at: new Date().toISOString() }
 
-  if (typeof body.enabled === 'boolean') update.enabled = body.enabled
+  if (typeof body.enabled === 'boolean') {
+    update.enabled = body.enabled
+    if (body.enabled === true) {
+      // From here the state is the customer's, not ours. Leaving the flag set
+      // would keep describing a workflow they deliberately switched back on as
+      // something we paused — and would re-report it in the next digest.
+      update.paused_by_plan = false
+      update.paused_at = null
+      update.paused_notified_at = null
+    }
+  }
 
   if (!isToggle) {
     // An edit is rate limited like a create. Each webhook step resolves DNS at

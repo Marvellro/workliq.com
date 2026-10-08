@@ -38,10 +38,17 @@ export type DeadJob = {
   createdAt: string
 }
 
+export type PausedWorkflow = {
+  id: string
+  name: string
+  pausedAt: string
+}
+
 export type CustomerDigest = {
   customerId: string
   email: string
   connections: BrokenConnection[]
+  pausedWorkflows: PausedWorkflow[]
   deadJobs: DeadJob[]
 }
 
@@ -54,6 +61,7 @@ const CONNECTION_TABLES: Record<ConnectionProvider, string> = {
 export type SweepResult = {
   customersNotified: number
   connectionsReported: number
+  workflowsReported: number
   jobsReported: number
   failures: number
 }
@@ -74,6 +82,7 @@ export async function runNotificationSweep(): Promise<SweepResult> {
   const result: SweepResult = {
     customersNotified: 0,
     connectionsReported: 0,
+    workflowsReported: 0,
     jobsReported: 0,
     failures: 0,
   }
@@ -92,7 +101,7 @@ export async function runNotificationSweep(): Promise<SweepResult> {
   function digestFor(customerId: string): CustomerDigest {
     let d = digests.get(customerId)
     if (!d) {
-      d = { customerId, email: '', connections: [], deadJobs: [] }
+      d = { customerId, email: '', connections: [], pausedWorkflows: [], deadJobs: [] }
       digests.set(customerId, d)
     }
     return d
@@ -119,6 +128,30 @@ export async function runNotificationSweep(): Promise<SweepResult> {
         brokenAt: row.last_error_at,
       })
     }
+  }
+
+  // ── Workflows paused by a plan change ──────────────────────────────────────
+  // A workflow that stops firing is indistinguishable from one that has nothing
+  // to fire on, so this is the one category the customer cannot discover by
+  // looking at the product.
+  const { data: paused, error: pausedError } = await supabase
+    .from('workflows')
+    .select('id, name, customer_id, paused_at')
+    .eq('paused_by_plan', true)
+    .is('paused_notified_at', null)
+    .order('paused_at', { ascending: true })
+
+  if (pausedError) {
+    console.error('[notify] could not read paused workflows:', pausedError.message)
+    result.failures++
+  }
+
+  for (const row of paused ?? []) {
+    digestFor(row.customer_id).pausedWorkflows.push({
+      id: row.id,
+      name: row.name,
+      pausedAt: row.paused_at,
+    })
   }
 
   // ── Dead jobs ──────────────────────────────────────────────────────────────
@@ -223,6 +256,15 @@ export async function runNotificationSweep(): Promise<SweepResult> {
       }
     }
 
+    if (digest.pausedWorkflows.length > 0) {
+      const { error } = await supabase
+        .from('workflows')
+        .update({ paused_notified_at: now })
+        .in('id', digest.pausedWorkflows.map((w) => w.id))
+
+      if (error) console.error('[notify] could not stamp paused workflows:', error.message)
+    }
+
     if (digest.deadJobs.length > 0) {
       const { error } = await supabase
         .from('jobs')
@@ -234,6 +276,7 @@ export async function runNotificationSweep(): Promise<SweepResult> {
 
     result.customersNotified++
     result.connectionsReported += digest.connections.length
+    result.workflowsReported += digest.pausedWorkflows.length
     result.jobsReported += digest.deadJobs.length
   }
 
@@ -265,6 +308,12 @@ function subjectFor(d: CustomerDigest): string {
   if (d.connections.length > 1) {
     return `Action needed: ${d.connections.length} Workliq connections stopped working`
   }
+  if (d.pausedWorkflows.length > 0) {
+    const n = d.pausedWorkflows.length
+    return n === 1
+      ? 'A Workliq workflow was paused by your plan change'
+      : `${n} Workliq workflows were paused by your plan change`
+  }
   const n = d.deadJobs.length
   return n === 1 ? '1 Workliq automation did not run' : `${n} Workliq automations did not run`
 }
@@ -285,6 +334,21 @@ function renderText(d: CustomerDigest): string {
       lines.push(`* ${providerLabel(c.provider)}: ${c.message}`)
     }
     lines.push('', `Reconnect: ${appUrl('/dashboard')}`, '')
+  }
+
+  if (d.pausedWorkflows.length > 0) {
+    lines.push('PAUSED BY YOUR PLAN', '')
+    for (const w of d.pausedWorkflows) {
+      lines.push(`* ${w.name}`)
+    }
+    lines.push(
+      '',
+      'Your plan allows fewer active workflows than you had running, so the',
+      'oldest were kept and these were switched off. Nothing was deleted.',
+      '',
+      `Upgrade or re-enable: ${appUrl('/dashboard/workflows')}`,
+      ''
+    )
   }
 
   if (d.deadJobs.length > 0) {
@@ -331,6 +395,25 @@ function renderHtml(d: CustomerDigest): string {
     }
     parts.push(
       `<p style="margin:16px 0 28px"><a href="${appUrl('/dashboard')}" style="display:inline-block;background:#1A56DB;color:#fff;font-size:14px;font-weight:600;text-decoration:none;border-radius:8px;padding:10px 18px">Reconnect now</a></p>`
+    )
+  }
+
+  if (d.pausedWorkflows.length > 0) {
+    parts.push(
+      `<h2 style="font-size:17px;font-weight:600;margin:0 0 4px">Paused by your plan</h2>`,
+      `<p style="font-size:14px;color:#6B7280;margin:0 0 16px">Your plan allows fewer active workflows than you had running. The oldest were kept and ${
+        d.pausedWorkflows.length === 1 ? 'this one was' : 'these were'
+      } switched off. Nothing was deleted.</p>`,
+      `<table style="width:100%;border-collapse:collapse;font-size:13px">`
+    )
+    for (const w of d.pausedWorkflows) {
+      parts.push(
+        `<tr><td style="padding:7px 0;border-bottom:1px solid #F3F4F6;color:#0D0F1A">${escapeHtml(w.name)}</td></tr>`
+      )
+    }
+    parts.push(
+      `</table>`,
+      `<p style="margin:16px 0 28px"><a href="${appUrl('/dashboard/workflows')}" style="font-size:14px;color:#1A56DB;text-decoration:none;font-weight:500">Review your workflows →</a></p>`
     )
   }
 

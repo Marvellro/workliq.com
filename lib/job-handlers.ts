@@ -3,6 +3,7 @@ import { registerHandler, enqueue, PermanentJobError, type JobRecord } from './j
 import { executeWorkflowAction, isActionPayload, type ActionPayload } from './workflow-execute'
 import { workflowMatchesCondition, type WorkflowRow, type TriggerEvent } from './workflow-engine'
 import { getValidHubSpotToken } from './hubspot'
+import { pauseWorkflowsOverLimit } from './entitlement-enforcement'
 import {
   syncAiBudgetToPlan,
   planFromId,
@@ -473,6 +474,12 @@ async function applySubscription(
   if (customerId) {
     // A lapsed subscription drops the account to free limits.
     await syncAiBudgetToPlan(customerId, isPaidStatus(status) ? plan : 'free')
+
+    // And brings what is running into line with them. Until this existed the
+    // limit governed how many workflows could be switched on and nothing about
+    // how many kept firing, so cancelling a subscription changed almost
+    // nothing about what the account actually did.
+    await pauseWorkflowsOverLimit(customerId)
   }
 
   console.log(

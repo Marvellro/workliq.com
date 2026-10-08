@@ -33,6 +33,8 @@ type Workflow = {
   action_type: ActionType | null
   action_config: StepConfig | null
   enabled: boolean
+  /** True when a billing change switched this off, rather than a person. */
+  paused_by_plan?: boolean
 }
 
 type Props = {
@@ -206,6 +208,15 @@ export default function WorkflowsClient({ initialWorkflows, slackConnected, noti
             <div style={{ minWidth: 0 }}>
               <div style={{ fontSize: 15, fontWeight: 600, color: '#0D0F1A', marginBottom: 3 }}>{w.name}</div>
               <div style={{ fontSize: 13, color: '#6B7280' }}>{summarize(w)}</div>
+              {/* Distinguishing "you paused this" from "your plan paused this"
+                  is the point of the flag — otherwise a workflow that stopped
+                  looks like one the customer switched off and forgot. */}
+              {w.paused_by_plan && !w.enabled && (
+                <div style={{ fontSize: 12, color: '#92400E', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 6, padding: '0.3rem 0.55rem', marginTop: 6, display: 'inline-block' }}>
+                  Paused by your plan — your plan allows fewer active workflows than you had running.
+                  Nothing was deleted; turning it back on may need an upgrade.
+                </div>
+              )}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexShrink: 0 }}>
               <button

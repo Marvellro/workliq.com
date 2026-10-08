@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { runJobs, enqueue } from '@/lib/jobs'
 import { registerJobHandlers } from '@/lib/job-handlers'
 import { runNotificationSweep } from '@/lib/notify'
+import { enforceAllEntitlements } from '@/lib/entitlement-enforcement'
 
 // The queue worker.
 //
@@ -50,8 +51,13 @@ export async function GET(req: Request) {
     }).catch(() => {})
   }
 
-  // The digest is deliberately downstream of the drain in the same request: a
-  // connection that just died gets reported in this run rather than waiting a
+  // A subscription can lapse by the clock rather than by webhook — a comp with
+  // an end date, or a customer.subscription.deleted that never arrived. Nothing
+  // would notice, so the enforcement runs here too and not only on the webhook.
+  const enforced = await enforceAllEntitlements()
+
+  // The digest is deliberately downstream of both: a connection that just died,
+  // or a workflow just paused, gets reported in this run rather than waiting a
   // further day for the next one.
   const notified = await runNotificationSweep()
 
@@ -62,5 +68,5 @@ export async function GET(req: Request) {
     )
   }
 
-  return NextResponse.json({ ok: true, ...result, notified, durationMs: ms })
+  return NextResponse.json({ ok: true, ...result, enforced, notified, durationMs: ms })
 }

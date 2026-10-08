@@ -18,6 +18,7 @@ export type AuditAction =
   | 'workflow.disabled'
   | 'workflow.deleted'
   | 'workflow.updated'
+  | 'workflow.paused_by_plan'
   | 'billing.portal_opened'
   | 'account.deletion_requested'
   | 'account.exported'

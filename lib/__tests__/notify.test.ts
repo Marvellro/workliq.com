@@ -10,6 +10,7 @@ function digest(over: Partial<CustomerDigest> = {}): CustomerDigest {
     customerId: 'c-1',
     email: 'someone@example.com',
     connections: [],
+    pausedWorkflows: [],
     deadJobs: [],
     ...over,
   }
@@ -140,5 +141,57 @@ describe('body', () => {
       expect(html).toMatch(/only send this when there is an action to take/)
       expect(text).toMatch(/only send this when there is an action to take/)
     }
+  })
+})
+
+describe('paused workflows', () => {
+  const paused = [
+    { id: 'w1', name: 'Deal stage change', pausedAt: '2026-10-08T10:00:00.000Z' },
+    { id: 'w2', name: 'Stale deal follow-up', pausedAt: '2026-10-08T10:00:00.000Z' },
+  ]
+
+  it('leads the subject when nothing is broken', () => {
+    expect(buildDigestEmail(digest({ pausedWorkflows: [paused[0]] })).subject).toBe(
+      'A Workliq workflow was paused by your plan change'
+    )
+    expect(buildDigestEmail(digest({ pausedWorkflows: paused })).subject).toBe(
+      '2 Workliq workflows were paused by your plan change'
+    )
+  })
+
+  it('still yields to a broken connection', () => {
+    // A dead credential stops everything; a paused workflow is a consequence of
+    // a billing change the customer already made. The cause owns the subject.
+    const { subject } = buildDigestEmail(
+      digest({ connections: [HUBSPOT_BROKEN], pausedWorkflows: paused })
+    )
+    expect(subject).toMatch(/^Action needed: your HubSpot/)
+  })
+
+  it('names each workflow and says nothing was deleted', () => {
+    // A workflow that stops firing looks exactly like one with nothing to fire
+    // on. This is the only category the customer cannot discover by looking.
+    const { html, text } = buildDigestEmail(digest({ pausedWorkflows: paused }))
+    for (const body of [html, text]) {
+      expect(body).toContain('Deal stage change')
+      expect(body).toContain('Stale deal follow-up')
+      expect(body).toMatch(/Nothing was deleted/)
+    }
+  })
+
+  it('explains which ones were kept', () => {
+    // The rule has to be stated, or the choice looks arbitrary.
+    const { html, text } = buildDigestEmail(digest({ pausedWorkflows: paused }))
+    expect(html).toMatch(/oldest were kept/)
+    expect(text).toMatch(/oldest were kept/)
+  })
+
+  it('escapes a workflow name', () => {
+    // Workflow names are customer-written free text going into HTML mail.
+    const { html } = buildDigestEmail(
+      digest({ pausedWorkflows: [{ ...paused[0], name: '<script>x</script> & "q"' }] })
+    )
+    expect(html).not.toContain('<script>')
+    expect(html).toContain('&lt;script&gt;')
   })
 })
