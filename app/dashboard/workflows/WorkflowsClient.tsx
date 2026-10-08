@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { upsertWorkflow } from '@/lib/workflow-list'
 
 type TriggerType = 'deal_stage_changed' | 'deal_created' | 'deal_stale'
 type ActionType = 'slack_message' | 'notion_row' | 'webhook' | 'ai_step'
@@ -132,16 +133,7 @@ export default function WorkflowsClient({ initialWorkflows, slackConnected, noti
   }
 
   function handleSaved(workflow: Workflow) {
-    setWorkflows((prev) => {
-      const at = prev.findIndex((w) => w.id === workflow.id)
-      if (at === -1) return [workflow, ...prev]
-      // Replaced in place rather than moved to the top — a list that reorders
-      // itself after an edit makes it hard to confirm you changed the one you
-      // meant to.
-      const next = [...prev]
-      next[at] = workflow
-      return next
-    })
+    setWorkflows((prev) => upsertWorkflow(prev, workflow))
     setShowForm(false)
     setEditing(null)
   }
