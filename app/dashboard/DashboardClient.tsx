@@ -85,6 +85,9 @@ export default function DashboardClient({ email, hubspot, slack, notion, flash }
           <a href="/dashboard/workflows" style={{ fontSize: 13, color: '#374151', textDecoration: 'none', border: '1px solid #E5E7EB', borderRadius: 6, padding: '0.35rem 0.75rem' }}>
             Workflows
           </a>
+          <a href="/dashboard/settings" style={{ fontSize: 13, color: '#374151', textDecoration: 'none', border: '1px solid #E5E7EB', borderRadius: 6, padding: '0.35rem 0.75rem' }}>
+            Settings
+          </a>
           <span style={{ fontSize: 13, color: '#6B7280' }}>{email}</span>
           <button
             onClick={handleLogout}

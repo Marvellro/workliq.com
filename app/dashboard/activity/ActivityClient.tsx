@@ -171,6 +171,9 @@ export default function ActivityClient({ initialRuns, initialQueue, initialSpend
           <a href="/dashboard" style={{ fontSize: 13, color: '#6B7280', textDecoration: 'none', border: '1px solid #E5E7EB', borderRadius: 6, padding: '0.35rem 0.75rem' }}>
             Connections
           </a>
+          <a href="/dashboard/settings" style={{ fontSize: 13, color: '#6B7280', textDecoration: 'none', border: '1px solid #E5E7EB', borderRadius: 6, padding: '0.35rem 0.75rem' }}>
+            Settings
+          </a>
         </div>
       </nav>
 
