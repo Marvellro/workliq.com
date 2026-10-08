@@ -20,6 +20,7 @@ export type AuditAction =
   | 'workflow.updated'
   | 'billing.portal_opened'
   | 'account.deletion_requested'
+  | 'account.exported'
   | 'admin.invite_sent'
   | 'admin.waitlist_updated'
   | 'admin.waitlist_deleted'

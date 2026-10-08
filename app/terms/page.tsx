@@ -32,7 +32,7 @@ If you do not agree to these Terms, you may not use the Service. We reserve the 
         { title: "4.2 Payment", content: "Paid plans are billed in advance on a monthly or annual basis via Stripe. By providing payment information, you authorise us to charge the applicable fees to your payment method. All fees are exclusive of applicable taxes, which you are responsible for paying." },
         { title: "4.3 Upgrades and downgrades", content: "You may upgrade your plan at any time and the change takes effect immediately, with a prorated charge for the remainder of the billing period. Downgrades take effect at the end of the current billing cycle." },
         { title: "4.4 Refunds", content: "All fees are non-refundable except where required by applicable law. If you cancel your subscription, you will continue to have access to the Service until the end of your current billing period. We do not provide partial-period refunds." },
-        { title: "4.5 Late payment", content: "If payment fails, we will attempt to notify you and retry the charge. Accounts with overdue payments may be suspended after 7 days. Suspended accounts retain their data for 30 days before permanent deletion." },
+        { title: "4.5 Late payment", content: "If a payment fails, Stripe retries it on its standard schedule and notifies you. While a subscription is past due or unpaid, the account is no longer entitled to paid features and AI steps stop running.\n\nWe do not delete your data because a payment failed, and we do not suspend accounts on a timer. Your workflows and history remain for you to return to." },
       ]
     },
     {
@@ -80,9 +80,9 @@ You agree not to use the Service to:
     {
       title: "11. Termination",
       subsections: [
-        { title: "11.1 By you", content: "You may cancel your subscription at any time through your account settings or by contacting us at legal@workliq.com." },
+        { title: "11.1 By you", content: "You may cancel your subscription at any time from Settings → Billing, which opens our payment provider's portal. Cancelling keeps your access until the end of the period you have already paid for.\n\nYou may also delete your account entirely from Settings. That is immediate and cannot be undone." },
         { title: "11.2 By us", content: "We may suspend or terminate your account immediately if you materially breach these Terms or engage in fraudulent activity." },
-        { title: "11.3 Effect of termination", content: "On termination, we will retain your Customer Data for 30 days, during which you may export it. After 30 days, we will delete your data from our active systems." },
+        { title: "11.3 Effect of termination", content: "You can download everything your account holds at any time from Settings, as a single JSON file. We would rather you did not have to ask us for it, and it does not depend on your account being open.\n\nDeleting your account removes your workflows, run history, connections and queued work immediately and permanently. Cancelling a subscription without deleting the account leaves your data in place — we do not delete data automatically for cancelled or inactive accounts, so nothing is lost if you come back.\n\nBilling records are kept for 7 years to meet financial reporting obligations, as described in our Privacy Policy." },
       ]
     },
     {

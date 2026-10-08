@@ -9,6 +9,7 @@ import {
   isWithinPeriod,
   ENTITLEMENT_GRACE_HOURS,
   effectiveAiBudget,
+  bestPlan,
 } from '../plans'
 
 // Pure entitlement logic. The database-backed parts (getEntitlements,
@@ -303,5 +304,47 @@ describe('effectiveAiBudget', () => {
     expect(effectiveAiBudget(-5, 'growth')).toBe(50)
     expect(warn).toHaveBeenCalledTimes(2)
     warn.mockRestore()
+  })
+})
+
+
+describe('bestPlan', () => {
+  // The entitlement function used to apply `limit 1` to a sort key that ties:
+  // claim_subscription_for_customer stamps every row it links with the same
+  // updated_at, so two subscriptions for one customer match to the microsecond.
+  // Which plan an account resolved to was decided by whichever row Postgres
+  // reached first — correct so far only because the one account with two rows
+  // has an expired comp that the date filter removes before ordering runs.
+
+  it('returns free for no entitlements', () => {
+    expect(bestPlan([])).toBe('free')
+  })
+
+  it('returns the only entitlement when there is one', () => {
+    expect(bestPlan([{ plan: 'starter' }])).toBe('starter')
+  })
+
+  it('gives the most generous when an account holds several', () => {
+    // A comp alongside a purchase is the obvious case. Charging someone for
+    // Growth and giving them Starter is the outcome worth ruling out.
+    expect(bestPlan([{ plan: 'starter' }, { plan: 'growth' }])).toBe('growth')
+    expect(bestPlan([{ plan: 'growth' }, { plan: 'starter' }])).toBe('growth')
+  })
+
+  it('does not depend on the order it receives them in', () => {
+    // The whole bug was an outcome that depended on row order. This asserts the
+    // replacement does not.
+    const rows = [{ plan: 'free' }, { plan: 'growth' }, { plan: 'starter' }]
+    const forwards = bestPlan(rows)
+    const backwards = bestPlan([...rows].reverse())
+    expect(forwards).toBe('growth')
+    expect(backwards).toBe('growth')
+  })
+
+  it('ignores plans it does not recognise', () => {
+    // planFromId resolves anything unknown to free, so an unrecognised plan
+    // cannot win by being unfamiliar.
+    expect(bestPlan([{ plan: 'enterprise' }, { plan: 'starter' }])).toBe('starter')
+    expect(bestPlan([{ plan: null }, { plan: undefined }])).toBe('free')
   })
 })

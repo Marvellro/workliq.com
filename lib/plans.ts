@@ -108,6 +108,36 @@ export function planFromId(value: string | null | undefined): PlanId {
   return 'free'
 }
 
+/**
+ * Ordering of plans by how much they grant.
+ *
+ * Lives here with the plan definitions rather than in the entitlement SQL,
+ * which is the same reason the limits do: what a plan means is a product
+ * decision that should move with a deploy. A copy in the database would be the
+ * one nobody remembers to change.
+ */
+const PLAN_RANK: Record<PlanId, number> = { free: 0, starter: 1, growth: 2 }
+
+/**
+ * Picks the entitlement an account should actually get.
+ *
+ * An account can hold more than one valid subscription — a comp alongside a
+ * purchase, most obviously. When that happens the customer gets the most
+ * generous of them, because the alternative is charging someone for Growth and
+ * giving them Starter.
+ *
+ * Returns free for an empty list. Deliberately total rather than throwing:
+ * every caller already treats "no entitlement" as free.
+ */
+export function bestPlan(rows: { plan?: string | null }[]): PlanId {
+  let best: PlanId = 'free'
+  for (const row of rows) {
+    const candidate = planFromId(row.plan)
+    if (PLAN_RANK[candidate] > PLAN_RANK[best]) best = candidate
+  }
+  return best
+}
+
 // ── Price IDs → plans ────────────────────────────────────────────────────────
 
 export type BillingPeriod = 'monthly' | 'annual'
@@ -180,21 +210,35 @@ export async function getEntitlements(customerId: string): Promise<Entitlements>
       return PLANS.free
     }
 
-    const row = Array.isArray(data) ? data[0] : data
-    if (!row || !isPaidStatus(row.status)) return PLANS.free
+    // Every valid entitlement, not just one. The function used to apply its own
+    // `limit 1` on a sort key that ties — claim_subscription_for_customer
+    // stamps every linked row with the same updated_at — so which plan an
+    // account resolved to was decided by whichever row Postgres reached first.
+    const rows = (Array.isArray(data) ? data : data ? [data] : []) as {
+      plan?: string | null
+      status?: string | null
+      current_period_end?: string | null
+    }[]
 
-    // The SQL already filters on the period, so this is defence rather than the
-    // primary gate — but it is where the rule is testable, and it means a
-    // direct caller or a future query that forgets the filter cannot hand out
-    // a lapsed plan. This check is why `current_period_end` is returned at all.
-    if (!isWithinPeriod(row.current_period_end)) {
-      console.warn(
-        `[plans] subscription for ${customerId} is past its period end — treating as free`
-      )
-      return PLANS.free
-    }
+    const usable = rows.filter((row) => {
+      if (!isPaidStatus(row.status)) return false
 
-    return PLANS[planFromId(row.plan)]
+      // The SQL already filters on the period, so this is defence rather than
+      // the primary gate — but it is where the rule is testable, and it means a
+      // direct caller, or a future query that forgets the filter, cannot hand
+      // out a lapsed plan. It is why `current_period_end` is returned at all.
+      if (!isWithinPeriod(row.current_period_end)) {
+        console.warn(
+          `[plans] a subscription for ${customerId} is past its period end — ignoring it`
+        )
+        return false
+      }
+      return true
+    })
+
+    if (usable.length === 0) return PLANS.free
+
+    return PLANS[bestPlan(usable)]
   } catch (err) {
     console.error('[plans] entitlement lookup threw, defaulting to free:', err)
     return PLANS.free

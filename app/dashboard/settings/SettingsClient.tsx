@@ -197,6 +197,26 @@ export default function SettingsClient({ email, plan, subscription }: Props) {
           )}
         </div>
 
+        {/* ── Export ── */}
+        <h2 style={{ fontSize: 13, fontWeight: 600, color: '#6B7280', letterSpacing: '.04em', textTransform: 'uppercase', margin: '1.75rem 0 0.6rem' }}>Your data</h2>
+        <div style={card}>
+          <p style={{ fontSize: 14, color: '#374151', margin: '0 0 0.85rem', lineHeight: 1.6 }}>
+            Download everything this account holds as JSON: your workflows, run
+            history, AI usage, connection details and security log.
+          </p>
+          <a
+            href="/api/account/export"
+            style={{ display: 'inline-block', fontSize: 14, fontWeight: 600, color: '#374151', background: '#fff', border: '1px solid #E5E7EB', borderRadius: 8, padding: '0.55rem 1.1rem', textDecoration: 'none' }}
+          >
+            Download my data
+          </a>
+          <p style={{ fontSize: 12, color: '#9CA3AF', marginTop: '0.6rem' }}>
+            Credentials are left out on purpose — OAuth tokens, your Slack
+            webhook URL and your webhook signing secret. A downloaded file is not
+            a safe place to keep them.
+          </p>
+        </div>
+
         {/* ── Delete account ── */}
         <h2 style={{ fontSize: 13, fontWeight: 600, color: '#991B1B', letterSpacing: '.04em', textTransform: 'uppercase', margin: '1.75rem 0 0.6rem' }}>
           Delete account
