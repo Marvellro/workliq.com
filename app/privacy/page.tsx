@@ -20,14 +20,21 @@ Data Protection contact: privacy@workliq.com`
         },
         {
           title: "2.2 Information collected automatically",
-          content: `• Usage data: features used, workflows created, automations triggered, and frequency of use
-• Log data: IP addresses, browser type, operating system, referring URLs, and timestamps
-• Device data: device type, unique device identifiers, and browser settings
-• Cookies and similar technologies: described in Section 7 below`
+          content: `• Usage data: the workflows you create, and a record of each time one runs and what the outcome was
+• Security log: for sign-ins, integration connections and other security-relevant actions, we record what happened, when, the IP address it came from and the browser user-agent string
+• Cookies: described in Section 8 below
+
+We do not set device identifiers, do not record which page referred you, and do not build a profile of your browsing. Our hosting provider keeps its own standard server access logs, as any web host does.`
         },
         {
           title: "2.3 Information from third parties",
-          content: "When you connect third-party integrations (such as HubSpot, Slack, or Gmail), we receive access tokens and may process data from those services as necessary to provide the automation functionality you have configured. We do not store integration data beyond what is operationally required."
+          content: `Workliq connects to three services: HubSpot, Slack and Notion. When you connect one, we receive and store an access token for it, encrypted as described in Section 9.
+
+From HubSpot we read deal records — name, stage, owner and the date of last recorded activity — to decide whether a workflow should run. We store the deal identifier, name and stage on each workflow run so you can see what happened and so the same event does not fire twice.
+
+To Slack and Notion we send only the content your workflow produces, to the channel or database you chose.
+
+We do not read your HubSpot contacts, emails, call records or note contents.`
         },
       ]
     },
@@ -63,13 +70,13 @@ Legal obligation — Processing required to comply with applicable law.`
           title: "5.1 Service providers",
           content: `We share information with trusted third-party vendors who help us operate the Service, including:
 
-• Stripe — payment processing
+• Stripe — payment processing and subscription billing
 • Supabase — database hosting and authentication
 • Vercel — application hosting
 • Resend — transactional email delivery
-• Anthropic — AI processing for workflow steps (data is not used for model training)
-• PostHog — product analytics
-• Sentry — error monitoring`
+• Anthropic — AI processing for workflow steps you configure, described in full in Section 6
+
+This list is complete. We do not use product analytics or error-monitoring services, and no advertising or tracking service receives your data.`
         },
         {
           title: "5.2 Business transfers",
@@ -86,42 +93,91 @@ Legal obligation — Processing required to comply with applicable law.`
       ]
     },
     {
-      title: "6. Data Retention",
-      content: `We retain your personal data for as long as your account is active or as needed to provide the Service:
+      title: "6. AI Processing",
+      content: `Some workflow steps use AI to write text — for example drafting a follow-up email or summarising a deal. An AI step runs only if you add one to a workflow, and only on the deals that workflow matches. Accounts on the Free plan have no AI budget, so no AI step runs and nothing described here is sent.
 
-• Account data: retained for the duration of your account plus 90 days after closure
-• Billing records: retained for 7 years to comply with financial regulations
-• Workflow and run data: retained for the duration of your subscription plan's data window
-• Support communications: retained for 2 years
+Our AI sub-processor is Anthropic, PBC.
 
-You may request deletion of your personal data at any time. We will action deletion requests within 30 days, subject to legal retention requirements.`
+What is sent
+
+When an AI step runs, exactly the following leaves our infrastructure:
+
+• The deal name
+• The deal's current stage
+• The deal owner's name
+• A one-sentence description of what triggered the workflow
+• The number of days since the deal's last recorded activity — only when staleness is what triggered the workflow
+• Any additional instruction you typed into that workflow step, passed through as written
+
+That list is exhaustive.
+
+What is never sent
+
+Contact records, email addresses, phone numbers, the contents of notes, emails or calls, deal amounts, and every other field in your CRM. Data about your own customers is not sent to the model.
+
+The payload is built as a fixed set of named fields rather than by forwarding a CRM record, so broadening what Workliq reads from HubSpot cannot quietly increase what is sent. Adding a field is a deliberate change to that list.
+
+Because the final item above is free text you write, please do not type personal data into a workflow instruction unless you intend it to be sent.
+
+What comes back, and where it is kept
+
+The generated text is delivered to the Slack channel or Notion database your workflow names. A copy is also stored against the workflow run in our database, so that a delivery which fails partway can be retried without losing what was already generated, and so you can see what was produced. It is retained as described in Section 7.
+
+We also record the token counts and the cost of each call. Those records contain no deal data and no generated text.
+
+Model training
+
+Under Anthropic's commercial terms, inputs and outputs submitted through its API are not used to train its models.`
     },
     {
-      title: "7. Cookies",
-      content: `We use cookies and similar technologies to provide and improve the Service:
+      title: "7. Data Retention",
+      content: `We retain your personal data for as long as your account is active.
 
-Essential cookies — Required for authentication, security, and core functionality. These cannot be disabled.
+Deleted automatically
 
-Analytics cookies — PostHog analytics to understand how users interact with the Service. You can opt out via your account settings.
+• Completed background jobs — 30 days after they finish
+• Rate-limiting counters — after 24 hours
 
-Preference cookies — To remember your settings and preferences across sessions.
+Retained for the life of the account
 
-You can control cookie settings through your browser. Note that disabling essential cookies will impair the functionality of the Service.`
+• Account details and workflow configuration
+• Workflow run history: the deal identifier, name and stage for each run, and any text an AI step generated
+• Records of events received from HubSpot and Stripe
+• AI usage records — token counts and cost, with no deal data or generated text
+• The security audit log
+
+We want to be plain about this rather than imply more than we do: apart from the two items above, nothing is currently deleted on a schedule. If that changes we will say so here.
+
+On request
+
+You may ask us to delete your personal data at any time, and we will do so within 30 days. Billing records are the exception: we keep those for 7 years to meet financial reporting obligations.
+
+Disconnecting an integration removes the stored access token for it.`
     },
     {
-      title: "8. Data Security",
+      title: "8. Cookies",
+      content: `Workliq sets only the cookies it needs in order to work. These are the complete set:
+
+sb-access-token and sb-refresh-token — keep you signed in between requests. Both are HTTP-only, so page scripts cannot read them.
+
+hubspot_oauth_state, slack_oauth_state and notion_oauth_state — short-lived random values that let us confirm an integration connection you started is the one that came back, which is what prevents someone else's connection being attached to your account. Each is cleared the moment that connection finishes.
+
+We use no analytics cookies, no advertising cookies and no third-party trackers, so there is nothing here to opt out of. Blocking these cookies will prevent you from signing in.`
+    },
+    {
+      title: "9. Data Security",
       content: `We implement appropriate technical and organisational measures to protect your personal data:
 
 • Encryption of data in transit (TLS 1.2+) and at rest (AES-256)
 • Third-party credentials (HubSpot, Slack, Notion) encrypted with AES-256-GCM at the application layer, so they cannot be read from the database alone
 • Row-level access controls restricting each account to its own data
-• An append-only audit log of security-relevant events
+• An audit log of security-relevant events, which the application only ever appends to
 • Incident response procedures with breach notification within 72 hours of discovery
 
-Despite these measures, no transmission over the internet is completely secure. If you believe your account has been compromised, please contact us immediately at legal@workliq.com.`
+Despite these measures, no transmission over the internet is completely secure. If you believe your account has been compromised, please contact us immediately at privacy@workliq.com.`
     },
     {
-      title: "9. Your Rights",
+      title: "10. Your Rights",
       content: `Depending on your location, you may have the following rights regarding your personal data:
 
 Access — Request a copy of the personal data we hold about you.
@@ -141,19 +197,19 @@ Opt-out of marketing — Unsubscribe from marketing emails at any time via the l
 To exercise any of these rights, please contact us at privacy@workliq.com. We will respond within 30 days.`
     },
     {
-      title: "10. International Transfers",
+      title: "11. International Transfers",
       content: "Workliq may transfer your personal data to countries with different data protection laws. When we transfer data internationally, we rely on EU Standard Contractual Clauses for transfers from the EEA, UK International Data Transfer Agreements for transfers from the UK, and adequacy decisions where applicable."
     },
     {
-      title: "11. Children's Privacy",
+      title: "12. Children's Privacy",
       content: "The Service is not directed at individuals under the age of 18. We do not knowingly collect personal data from children. If you become aware that a child has provided us with personal data, please contact us at privacy@workliq.com and we will take steps to delete it."
     },
     {
-      title: "12. Changes to This Policy",
+      title: "13. Changes to This Policy",
       content: "We may update this Privacy Policy from time to time. We will notify you of material changes by email or by prominent notice on the Service at least 30 days before the changes take effect. Your continued use of the Service after changes take effect constitutes acceptance of the updated policy."
     },
     {
-      title: "13. Contact Us",
+      title: "14. Contact Us",
       content: `If you have any questions about this Privacy Policy or our data practices, please contact us:
 
 Workliq Inc.

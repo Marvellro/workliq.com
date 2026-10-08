@@ -9,7 +9,7 @@ export default function Docs() {
 To get started:
 
 • Create a Workliq account at workliq.com
-• Connect an integration (HubSpot, Slack, or Gmail)
+• Connect an integration (HubSpot, Slack or Notion)
 • Choose a template or build a workflow from scratch
 • Turn on your workflow and let it run`
     },
