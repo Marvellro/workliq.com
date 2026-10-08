@@ -37,6 +37,9 @@ function formatDate(iso: string | null): string {
 export default function SettingsClient({ email, plan, subscription }: Props) {
   const [opening, setOpening] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [confirmText, setConfirmText] = useState('')
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   async function openBilling() {
     setOpening(true)
@@ -54,6 +57,30 @@ export default function SettingsClient({ email, plan, subscription }: Props) {
     } catch {
       setError('Could not reach billing. Please try again.')
       setOpening(false)
+    }
+  }
+
+  async function deleteAccount() {
+    setDeleting(true)
+    setDeleteError(null)
+    try {
+      const res = await fetch('/api/account/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm: confirmText }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        setDeleteError(body.error ?? 'The account could not be deleted.')
+        setDeleting(false)
+        return
+      }
+      // The session is gone server-side; a full navigation drops any client
+      // state with it rather than leaving a dead dashboard on screen.
+      window.location.href = '/'
+    } catch {
+      setDeleteError('Could not reach the server. Nothing was deleted.')
+      setDeleting(false)
     }
   }
 
@@ -166,6 +193,65 @@ export default function SettingsClient({ email, plan, subscription }: Props) {
           {error && (
             <div style={{ fontSize: 13, color: '#991B1B', background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '0.6rem 0.85rem', marginTop: '0.85rem' }}>
               {error}
+            </div>
+          )}
+        </div>
+
+        {/* ── Delete account ── */}
+        <h2 style={{ fontSize: 13, fontWeight: 600, color: '#991B1B', letterSpacing: '.04em', textTransform: 'uppercase', margin: '1.75rem 0 0.6rem' }}>
+          Delete account
+        </h2>
+        <div style={{ ...card, border: '1px solid #FECACA' }}>
+          <p style={{ fontSize: 14, color: '#374151', margin: '0 0 0.85rem', lineHeight: 1.6 }}>
+            This removes your account and everything in it: your HubSpot, Slack
+            and Notion connections and their stored tokens, every workflow, your
+            run history including any text an AI step produced, and your queued
+            work. It cannot be undone.
+          </p>
+          {subscription?.manageable && (
+            <p style={{ fontSize: 14, color: '#991B1B', margin: '0 0 0.85rem', lineHeight: 1.6 }}>
+              Your subscription is cancelled first, immediately. You will not be
+              billed again, and the remainder of the period you have already paid
+              for is not refunded. If you would rather keep access until it ends,
+              cancel from Manage subscription above and delete later.
+            </p>
+          )}
+          <p style={{ fontSize: 13, color: '#6B7280', margin: '0 0 1rem', lineHeight: 1.6 }}>
+            Your billing records are kept for 7 years to meet financial reporting
+            obligations, as described in our{' '}
+            <a href="/privacy" style={{ color: '#1A56DB' }}>privacy policy</a>.
+            Nothing else is retained.
+          </p>
+
+          <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: '0.375rem' }}>
+            Type DELETE to confirm
+          </label>
+          <input
+            value={confirmText}
+            onChange={(e) => setConfirmText(e.target.value)}
+            placeholder="DELETE"
+            style={{ width: 200, fontSize: 14, color: '#0D0F1A', border: '1px solid #E5E7EB', borderRadius: 8, padding: '0.55rem 0.75rem', marginRight: '0.6rem', boxSizing: 'border-box' }}
+          />
+          <button
+            onClick={deleteAccount}
+            disabled={confirmText !== 'DELETE' || deleting}
+            style={{
+              fontSize: 14,
+              fontWeight: 600,
+              color: '#fff',
+              background: confirmText === 'DELETE' ? '#A4161A' : '#E5E7EB',
+              borderRadius: 8,
+              padding: '0.55rem 1.1rem',
+              border: 'none',
+              cursor: confirmText === 'DELETE' && !deleting ? 'pointer' : 'default',
+            }}
+          >
+            {deleting ? 'Deleting…' : 'Delete my account'}
+          </button>
+
+          {deleteError && (
+            <div style={{ fontSize: 13, color: '#991B1B', background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '0.6rem 0.85rem', marginTop: '0.85rem' }}>
+              {deleteError}
             </div>
           )}
         </div>

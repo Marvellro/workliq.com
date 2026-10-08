@@ -104,6 +104,7 @@ function summarize(w: Workflow): string {
 export default function WorkflowsClient({ initialWorkflows, slackConnected, notionConnected }: Props) {
   const [workflows, setWorkflows] = useState<Workflow[]>(initialWorkflows)
   const [showForm, setShowForm] = useState(false)
+  const [editing, setEditing] = useState<Workflow | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
 
   async function handleToggle(id: string, enabled: boolean) {
@@ -130,9 +131,19 @@ export default function WorkflowsClient({ initialWorkflows, slackConnected, noti
     setBusyId(null)
   }
 
-  function handleCreated(workflow: Workflow) {
-    setWorkflows((prev) => [workflow, ...prev])
+  function handleSaved(workflow: Workflow) {
+    setWorkflows((prev) => {
+      const at = prev.findIndex((w) => w.id === workflow.id)
+      if (at === -1) return [workflow, ...prev]
+      // Replaced in place rather than moved to the top — a list that reorders
+      // itself after an edit makes it hard to confirm you changed the one you
+      // meant to.
+      const next = [...prev]
+      next[at] = workflow
+      return next
+    })
     setShowForm(false)
+    setEditing(null)
   }
 
   return (
@@ -166,18 +177,20 @@ export default function WorkflowsClient({ initialWorkflows, slackConnected, noti
             </p>
           </div>
           <button
-            onClick={() => setShowForm((v) => !v)}
+            onClick={() => { setEditing(null); setShowForm((v) => !v) }}
             style={{ fontSize: 14, fontWeight: 600, color: '#fff', background: '#1A56DB', borderRadius: 8, padding: '0.55rem 1.1rem', border: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}
           >
-            {showForm ? 'Cancel' : '+ New workflow'}
+            {showForm || editing ? 'Cancel' : '+ New workflow'}
           </button>
         </div>
 
-        {showForm && (
-          <NewWorkflowForm
+        {(showForm || editing) && (
+          <WorkflowForm
+            key={editing?.id ?? 'new'}
+            existing={editing}
             slackConnected={slackConnected}
             notionConnected={notionConnected}
-            onCreated={handleCreated}
+            onSaved={handleSaved}
           />
         )}
 
@@ -217,6 +230,13 @@ export default function WorkflowsClient({ initialWorkflows, slackConnected, noti
                 {w.enabled ? 'Enabled' : 'Paused'}
               </button>
               <button
+                onClick={() => { setEditing(w); setShowForm(false); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
+                disabled={busyId === w.id}
+                style={{ fontSize: 13, color: '#374151', background: 'none', border: '1px solid #E5E7EB', borderRadius: 6, padding: '0.35rem 0.65rem', cursor: busyId === w.id ? 'default' : 'pointer' }}
+              >
+                Edit
+              </button>
+              <button
                 onClick={() => handleDelete(w.id)}
                 disabled={busyId === w.id}
                 style={{ fontSize: 13, color: '#991B1B', background: 'none', border: '1px solid #FECACA', borderRadius: 6, padding: '0.35rem 0.65rem', cursor: busyId === w.id ? 'default' : 'pointer' }}
@@ -246,6 +266,18 @@ type StepDraft = {
   aiInstructions: string
   messageTemplate: string
   webhookUrl: string
+}
+
+/** Rebuilds the editable draft from a step as it was stored. */
+function stepToDraft(step: Step): StepDraft {
+  const c = step.action_config ?? {}
+  return {
+    action_type: step.action_type,
+    aiTask: c.ai_task ?? 'summarize',
+    aiInstructions: c.ai_instructions ?? '',
+    messageTemplate: c.message_template ?? '',
+    webhookUrl: c.url ?? '',
+  }
 }
 
 function newStep(): StepDraft {
@@ -281,23 +313,35 @@ function toStep(d: StepDraft): Step {
 }
 
 
-function NewWorkflowForm({
+function WorkflowForm({
+  existing,
   slackConnected,
   notionConnected,
-  onCreated,
+  onSaved,
 }: {
+  /** Null when creating. When set, the form edits that workflow in place. */
+  existing: Workflow | null
   slackConnected: boolean
   notionConnected: boolean
-  onCreated: (w: Workflow) => void
+  onSaved: (w: Workflow) => void
 }) {
-  const [name, setName] = useState('')
-  const [triggerType, setTriggerType] = useState<TriggerType>('deal_created')
-  const [toStage, setToStage] = useState('')
-  const [thresholdDays, setThresholdDays] = useState('7')
-  const [conditionProperty, setConditionProperty] = useState('')
-  const [conditionOperator, setConditionOperator] = useState<ConditionOperator>('equals')
-  const [conditionValue, setConditionValue] = useState('')
-  const [steps, setSteps] = useState<StepDraft[]>([newStep()])
+  // Seeded once. The caller passes a `key` of the workflow id, so switching
+  // which workflow is being edited remounts rather than leaving stale values
+  // from the previous one.
+  const [name, setName] = useState(existing?.name ?? '')
+  const [triggerType, setTriggerType] = useState<TriggerType>(existing?.trigger_type ?? 'deal_created')
+  const [toStage, setToStage] = useState(existing?.trigger_config?.to_stage ?? '')
+  const [thresholdDays, setThresholdDays] = useState(
+    existing?.trigger_config?.threshold_days ? String(existing.trigger_config.threshold_days) : '7'
+  )
+  const [conditionProperty, setConditionProperty] = useState(existing?.condition_property ?? '')
+  const [conditionOperator, setConditionOperator] = useState<ConditionOperator>(
+    existing?.condition_operator ?? 'equals'
+  )
+  const [conditionValue, setConditionValue] = useState(existing?.condition_value ?? '')
+  const [steps, setSteps] = useState<StepDraft[]>(
+    existing ? stepsOf(existing).map(stepToDraft) : [newStep()]
+  )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -343,8 +387,8 @@ function NewWorkflowForm({
     if (triggerType === 'deal_stale') trigger_config.threshold_days = Number(thresholdDays)
 
 
-    const res = await fetch('/api/workflows', {
-      method: 'POST',
+    const res = await fetch(existing ? `/api/workflows/${existing.id}` : '/api/workflows', {
+      method: existing ? 'PATCH' : 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: name.trim(),
@@ -360,10 +404,10 @@ function NewWorkflowForm({
     setSaving(false)
     if (!res.ok) {
       const body = await res.json().catch(() => ({}))
-      return setError(body.error ?? 'Failed to create workflow.')
+      return setError(body.error ?? `Failed to ${existing ? 'save' : 'create'} workflow.`)
     }
     const { workflow } = await res.json()
-    onCreated(workflow)
+    onSaved(workflow)
   }
 
   function updateStep(index: number, patch: Partial<StepDraft>) {
@@ -563,7 +607,7 @@ function NewWorkflowForm({
         disabled={saving}
         style={{ fontSize: 14, fontWeight: 600, color: '#fff', background: '#1A56DB', borderRadius: 8, padding: '0.6rem 1.25rem', border: 'none', cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.7 : 1 }}
       >
-        {saving ? 'Saving…' : 'Create workflow'}
+        {saving ? 'Saving…' : existing ? 'Save changes' : 'Create workflow'}
       </button>
     </form>
   )
