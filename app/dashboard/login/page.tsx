@@ -10,19 +10,46 @@ function getSupabase() {
   )
 }
 
+/**
+ * Why someone was sent back here from a sign-in link.
+ *
+ * Read during render rather than in an effect: it is a value in the URL, not
+ * something that changes, and deriving it here avoids a second render pass
+ * showing nothing.
+ */
+function linkFailureMessage(): string {
+  if (typeof window === 'undefined') return ''
+  const code = new URLSearchParams(window.location.search).get('error')
+  if (!code) return ''
+
+  if (code === 'otp_expired' || code === 'access_denied') {
+    return 'That sign-in link had already been used or had expired. Email security scanners sometimes open links before you get to them, which uses them up — a code typed in below cannot be consumed that way.'
+  }
+  return 'That sign-in link did not work. Request a new code below.'
+}
+
 export default function CustomerLoginPage() {
   const [email, setEmail]   = useState('')
   const [otp, setOtp]       = useState('')
   const [sent, setSent]     = useState(false)
   const [loading, setLoading] = useState(false)
-  const [error, setError]   = useState('')
+  // Seeded from the URL so arriving from a dead link explains itself, rather
+  // than presenting a bare sign-in form to someone who just clicked one.
+  const [error, setError]   = useState(linkFailureMessage)
 
   async function handleSendCode() {
     setLoading(true)
     setError('')
     const { error } = await getSupabase().auth.signInWithOtp({
       email,
-      options: { shouldCreateUser: true },
+      options: {
+        shouldCreateUser: true,
+        // Where a link lands, if the email carries one. Without this Supabase
+        // falls back to the project's site URL — the marketing homepage — which
+        // has no idea what to do with an auth fragment, so both success and
+        // failure ended up looking like a logged-out visitor.
+        emailRedirectTo: `${window.location.origin}/auth/callback`,
+      },
     })
     if (error) setError(error.message)
     else setSent(true)

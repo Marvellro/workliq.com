@@ -55,6 +55,31 @@ type SupabaseJWT = JWTPayload & {
  * expired but a refresh token is present, exchanges it for a new session and
  * writes the rotated pair back to the cookies.
  */
+/**
+ * Verifies a Supabase access token's signature locally and returns who it is
+ * for, or null when the token carries no usable identity.
+ *
+ * Throws when the token is invalid or expired, which is what lets
+ * getCustomerSession fall through to the refresh path. Exported because the
+ * email-link callback has to answer the same question about a token that
+ * arrived in a URL rather than a cookie, and answering it a second way is how
+ * two paths drift apart.
+ */
+export async function verifyAccessToken(accessToken: string): Promise<CustomerSession | null> {
+  const { payload } = await jwtVerify<SupabaseJWT>(accessToken, getJWKS(), {
+    // Supabase issues access tokens with aud "authenticated". Checking it stops
+    // a token minted for some other audience (a service token, a token from
+    // another Supabase project sharing an issuer) from being accepted as a
+    // customer login.
+    audience: 'authenticated',
+  })
+  // jwtVerify already enforces `exp` and `nbf`.
+  if (payload.sub && payload.email) {
+    return { customerId: payload.sub, email: payload.email }
+  }
+  return null
+}
+
 export async function getCustomerSession(): Promise<CustomerSession | null> {
   const cookieStore = await cookies()
   const accessToken = cookieStore.get(ACCESS_TOKEN_COOKIE)?.value
@@ -64,17 +89,8 @@ export async function getCustomerSession(): Promise<CustomerSession | null> {
 
   if (accessToken) {
     try {
-      const { payload } = await jwtVerify<SupabaseJWT>(accessToken, getJWKS(), {
-        // Supabase issues access tokens with aud "authenticated". Checking it
-        // stops a token minted for some other audience (a service token, a
-        // token from another Supabase project sharing an issuer) from being
-        // accepted as a customer login.
-        audience: 'authenticated',
-      })
-      // jwtVerify already enforces `exp` and `nbf`.
-      if (payload.sub && payload.email) {
-        return { customerId: payload.sub, email: payload.email }
-      }
+      const verified = await verifyAccessToken(accessToken)
+      if (verified) return verified
       return null
     } catch {
       // Expired or invalid — fall through to the refresh path below. We don't

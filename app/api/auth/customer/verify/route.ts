@@ -1,14 +1,13 @@
 import { NextResponse } from 'next/server'
 import {
   getSupabaseAnon,
-  getSupabaseAdmin,
   SESSION_COOKIE_OPTIONS,
   ACCESS_TOKEN_COOKIE,
   REFRESH_TOKEN_COOKIE,
 } from '@/lib/config'
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit'
 import { recordAudit, clientIp, userAgent } from '@/lib/audit'
-import { getEntitlements, syncAiBudgetToPlan } from '@/lib/plans'
+import { establishCustomerSession } from '@/lib/customer-session'
 
 // Exchanges an emailed OTP for a session.
 //
@@ -73,39 +72,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Invalid or expired code' }, { status: 401 })
   }
 
-  // Ensure a customers row exists for this user. Uses service role so it can
-  // write regardless of RLS. onConflict: 'id' makes re-logins idempotent.
-  const { error: customerError } = await getSupabaseAdmin()
-    .from('customers')
-    .upsert({ id: data.user.id, email: data.user.email }, { onConflict: 'id' })
-
-  if (customerError) {
-    // Don't block login over this — the row may already exist. Log and continue.
-    console.error('Failed to upsert customer row:', customerError)
-  }
-
-  // Link any subscription bought under this email to the account.
-  //
-  // Checkout happens before sign-up, so the very first billing webhook arrives
-  // with no customer row to attach to. This is where the two finally meet —
-  // without it, someone pays and then sits on the free plan, which is the worst
-  // bug a billing system can have.
-  const { error: claimError } = await getSupabaseAdmin().rpc(
-    'claim_subscription_for_customer',
-    { p_customer_id: data.user.id, p_email: normalizedEmail }
-  )
-  if (claimError) {
-    console.error('Failed to claim subscription for customer:', claimError.message)
-  } else {
-    // Bring the AI budget in line with whatever they are actually paying for.
-    const entitlements = await getEntitlements(data.user.id)
-    await syncAiBudgetToPlan(data.user.id, entitlements.plan)
-  }
-
-  await recordAudit({
-    action: 'customer.login',
-    customerId: data.user.id,
-    actor: data.user.email,
+  // Shared with the email-link callback, so both ways in leave the account in
+  // the same state. They used to do entirely different things.
+  await establishCustomerSession({
+    userId: data.user.id,
+    email: data.user.email!,
     ip,
     userAgent: userAgent(req),
   })
