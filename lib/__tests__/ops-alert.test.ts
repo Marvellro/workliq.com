@@ -71,3 +71,19 @@ describe('buildOperatorEmail', () => {
     expect(html).toContain('&lt;script&gt;')
   })
 })
+
+describe('runOperatorAlert result shape', () => {
+  it('distinguishes "not configured" from "nothing wrong"', async () => {
+    // Both used to report zeros. An unconfigured deployment and a healthy one
+    // looking identical is the failure this module exists to prevent, applied
+    // to the module itself.
+    const { runOperatorAlert } = await import('../ops-alert')
+    const before = process.env.OPS_ALERT_EMAIL
+    delete process.env.OPS_ALERT_EMAIL
+
+    const result = await runOperatorAlert()
+    expect(result.configured).toBe(false)
+
+    if (before !== undefined) process.env.OPS_ALERT_EMAIL = before
+  })
+})

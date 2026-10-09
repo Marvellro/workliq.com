@@ -47,6 +47,14 @@ export type OperatorSignal = {
 }
 
 export type OpsAlertResult = {
+  /**
+   * Whether alerting is switched on at all.
+   *
+   * Without this, an unconfigured deployment and a perfectly healthy one both
+   * report zeros — a silent no-op that reads as health, which is the exact
+   * failure this module exists to prevent. Saying so costs one boolean.
+   */
+  configured: boolean
   found: number
   sent: number
   suppressed: number
@@ -157,14 +165,20 @@ export async function collectOperatorSignals(): Promise<OperatorSignal[]> {
  * monitoring causing the outage.
  */
 export async function runOperatorAlert(): Promise<OpsAlertResult> {
-  const result: OpsAlertResult = { found: 0, sent: 0, suppressed: 0 }
+  const result: OpsAlertResult = { configured: false, found: 0, sent: 0, suppressed: 0 }
 
   const to = process.env.OPS_ALERT_EMAIL
   if (!to || !process.env.RESEND_API_KEY) {
-    // Not an error. Preview deployments and local development run without
-    // either, and a sweep that threw there would take the drain with it.
+    // Not an error — preview deployments and local development run without
+    // either, and throwing here would take the drain down with it. But it is
+    // said out loud, because nobody notices monitoring that was never on.
+    console.warn(
+      '[ops-alert] OPS_ALERT_EMAIL or RESEND_API_KEY is not set — operator alerting is off'
+    )
     return result
   }
+
+  result.configured = true
 
   try {
     const supabase = getSupabaseAdmin()
