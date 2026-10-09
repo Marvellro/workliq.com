@@ -79,6 +79,23 @@ export async function countOverdueJobs(): Promise<number> {
 }
 
 /**
+ * What the operator checks are derived from.
+ *
+ * Separated from the judgement so "what counts as a problem" can be exercised
+ * without a database. The first version of these tests read the live one, which
+ * meant they needed production credentials and would have failed on any clean
+ * checkout — an integration test wearing a unit test's clothes.
+ */
+export type OperatorSnapshot = {
+  /** Overdue when the invocation began — see readOperatorSnapshot. */
+  overdueJobs: number
+  webhookRejections24h: number
+  /** Distinct accounts holding at least one broken connection. */
+  accountsWithBrokenConnections: number
+  deadJobs: number
+}
+
+/**
  * @param overdueJobs how many jobs were overdue when this invocation began.
  *
  * Measured by the caller, before it drains the queue, and that ordering is the
@@ -92,26 +109,60 @@ export async function countOverdueJobs(): Promise<number> {
  * is the safe direction for a check whose false positives would train someone
  * to ignore it.
  */
-export async function collectOperatorSignals(
-  overdueJobs?: number
-): Promise<OperatorSignal[]> {
+export async function readOperatorSnapshot(overdueJobs?: number): Promise<OperatorSnapshot> {
   const supabase = getSupabaseAdmin()
+  const since = new Date(Date.now() - 24 * 3600_000).toISOString()
+
+  const [overdue, rejections, broken, dead] = await Promise.all([
+    overdueJobs !== undefined ? Promise.resolve(overdueJobs) : countOverdueJobs(),
+    supabase
+      .from('audit_log')
+      .select('id', { count: 'exact', head: true })
+      .eq('action', 'webhook.rejected')
+      .gte('created_at', since),
+    Promise.all(
+      (['hubspot_connections', 'slack_connections', 'notion_connections'] as const).map((table) =>
+        supabase.from(table).select('customer_id').eq('status', 'needs_reauth')
+      )
+    ),
+    supabase.from('jobs').select('id', { count: 'exact', head: true }).eq('status', 'dead'),
+  ])
+
+  const affected = new Set<string>()
+  for (const result of broken) {
+    for (const row of result.data ?? []) affected.add(row.customer_id as string)
+  }
+
+  return {
+    overdueJobs: overdue,
+    webhookRejections24h: rejections.count ?? 0,
+    accountsWithBrokenConnections: affected.size,
+    deadJobs: dead.count ?? 0,
+  }
+}
+
+/**
+ * Decides which conditions are worth an operator's attention.
+ *
+ * Pure. This is the judgement, and the only part of this module that is worth
+ * arguing about.
+ */
+export function signalsFromSnapshot(snapshot: OperatorSnapshot): OperatorSignal[] {
   const signals: OperatorSignal[] = []
 
   // ── The queue has stopped draining ─────────────────────────────────────────
   // The most serious thing on this list, because it is silent in both
   // directions: no workflow fires, and no digest goes out to say so, since the
   // sweep runs in the same place the drain does.
-  const overdue = overdueJobs ?? (await countOverdueJobs())
-
-  if (overdue > 0) {
+  if (snapshot.overdueJobs > 0) {
+    const n = snapshot.overdueJobs
     signals.push({
       key: 'queue_stalled',
       severity: 'critical',
       headline:
-        overdue === 1
+        n === 1
           ? `1 job was overdue by more than ${OVERDUE_HOURS} hours`
-          : `${overdue} jobs were overdue by more than ${OVERDUE_HOURS} hours`,
+          : `${n} jobs were overdue by more than ${OVERDUE_HOURS} hours`,
       detail:
         'Work had been queued that long without running, measured before this invocation drained anything — so earlier runs were not clearing it. Customers get no automations and no digest either, because the sweep runs in the same invocation as the drain. Check that the cron is firing and that the worker is not erroring on claim.',
     })
@@ -119,18 +170,12 @@ export async function collectOperatorSignals(
 
   // ── Webhooks being turned away ─────────────────────────────────────────────
   // From the customer's side this is indistinguishable from nothing happening.
-  const since = new Date(Date.now() - 24 * 3600_000).toISOString()
-  const { count: rejections } = await supabase
-    .from('audit_log')
-    .select('id', { count: 'exact', head: true })
-    .eq('action', 'webhook.rejected')
-    .gte('created_at', since)
-
-  if (rejections && rejections > 0) {
+  if (snapshot.webhookRejections24h > 0) {
+    const n = snapshot.webhookRejections24h
     signals.push({
       key: 'webhook_rejections',
       severity: 'warning',
-      headline: `${rejections} webhook${rejections === 1 ? '' : 's'} rejected in the last 24 hours`,
+      headline: `${n} webhook${n === 1 ? '' : 's'} rejected in the last 24 hours`,
       detail:
         'Signature verification failed. A rotated signing secret, a subscription pointing at the wrong host, or someone probing the endpoint. The audit entries carry the reason and the URI that was verified against.',
     })
@@ -140,45 +185,34 @@ export async function collectOperatorSignals(
   // One account losing a credential is that account's problem, and they have
   // already had an email about it. Several at once is a configuration problem
   // at this end, and nobody is going to tell us.
-  const broken = await Promise.all(
-    (['hubspot_connections', 'slack_connections', 'notion_connections'] as const).map((table) =>
-      supabase.from(table).select('customer_id').eq('status', 'needs_reauth')
-    )
-  )
-
-  const affected = new Set<string>()
-  for (const result of broken) {
-    for (const row of result.data ?? []) affected.add(row.customer_id as string)
-  }
-
-  if (affected.size > 1) {
+  if (snapshot.accountsWithBrokenConnections > 1) {
     signals.push({
       key: 'connections_broken_widely',
       severity: 'critical',
-      headline: `${affected.size} accounts have a broken connection`,
+      headline: `${snapshot.accountsWithBrokenConnections} accounts have a broken connection`,
       detail:
         'More than one account losing a credential at the same time usually means something at this end — a rotated client secret, a changed redirect URI, an app uninstalled from a shared install. Worth checking before asking customers to reconnect.',
     })
   }
 
   // ── Jobs that gave up ──────────────────────────────────────────────────────
-  const { count: dead } = await supabase
-    .from('jobs')
-    .select('id', { count: 'exact', head: true })
-    .eq('status', 'dead')
-
-  if (dead && dead > 0) {
+  if (snapshot.deadJobs > 0) {
+    const n = snapshot.deadJobs
     signals.push({
       key: 'dead_jobs',
       severity: 'warning',
-      headline:
-        dead === 1 ? '1 job exhausted its retries' : `${dead} jobs exhausted their retries`,
+      headline: n === 1 ? '1 job exhausted its retries' : `${n} jobs exhausted their retries`,
       detail:
         'Customers are told about their own, so this is about the rate rather than any one of them. A cluster usually points at one cause rather than many.',
     })
   }
 
   return signals
+}
+
+/** Reads the snapshot and applies the judgement. */
+export async function collectOperatorSignals(overdueJobs?: number): Promise<OperatorSignal[]> {
+  return signalsFromSnapshot(await readOperatorSnapshot(overdueJobs))
 }
 
 // ── Sending ──────────────────────────────────────────────────────────────────

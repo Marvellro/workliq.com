@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildOperatorEmail, type OperatorSignal } from '../ops-alert'
+import { buildOperatorEmail, signalsFromSnapshot, type OperatorSignal } from '../ops-alert'
 
 // What an operator actually receives. The judgement being tested is which
 // condition owns the subject line, because that decides whether someone opens
@@ -88,30 +88,69 @@ describe('runOperatorAlert result shape', () => {
   })
 })
 
-describe('collectOperatorSignals wording', () => {
-  // Read off the ops_alerts rows a real alert produced: "1 job were overdue"
-  // and "1 job exhausted their retries". Both pluralised the noun and forgot
-  // the verb. An alert that cannot count to one is one people stop trusting.
-  it('agrees in number for a single job', async () => {
-    const { collectOperatorSignals } = await import('../ops-alert')
-    const signals = await collectOperatorSignals(1)
-    const stalled = signals.find((s) => s.key === 'queue_stalled')
+describe('signalsFromSnapshot', () => {
+  // Pure, deliberately. The first version of these called the real collector,
+  // which reads the live database — so they needed production credentials and
+  // would have failed on any clean checkout. They passed locally only because
+  // the shell that ran them happened to have .env.local sourced.
 
-    expect(stalled?.headline).toBe('1 job was overdue by more than 6 hours')
-    expect(stalled?.headline).not.toMatch(/\bjobs\b|\bwere\b/)
+  const clear = {
+    overdueJobs: 0,
+    webhookRejections24h: 0,
+    accountsWithBrokenConnections: 0,
+    deadJobs: 0,
+  }
+
+  it('raises nothing when everything is clear', () => {
+    expect(signalsFromSnapshot(clear)).toEqual([])
   })
 
-  it('agrees in number for several', async () => {
-    const { collectOperatorSignals } = await import('../ops-alert')
-    const signals = await collectOperatorSignals(4)
-    const stalled = signals.find((s) => s.key === 'queue_stalled')
+  it('agrees in number for a single job', () => {
+    // Read off the ops_alerts rows a real alert produced: "1 job were overdue"
+    // and "1 job exhausted their retries". Both pluralised the noun and left
+    // the verb alone. An alert that cannot count to one stops being believed.
+    const [stalled] = signalsFromSnapshot({ ...clear, overdueJobs: 1 })
+    expect(stalled.headline).toBe('1 job was overdue by more than 6 hours')
 
-    expect(stalled?.headline).toBe('4 jobs were overdue by more than 6 hours')
+    const [dead] = signalsFromSnapshot({ ...clear, deadJobs: 1 })
+    expect(dead.headline).toBe('1 job exhausted its retries')
   })
 
-  it('raises nothing when the queue is clear', async () => {
-    const { collectOperatorSignals } = await import('../ops-alert')
-    const signals = await collectOperatorSignals(0)
-    expect(signals.find((s) => s.key === 'queue_stalled')).toBeUndefined()
+  it('agrees in number for several', () => {
+    expect(signalsFromSnapshot({ ...clear, overdueJobs: 4 })[0].headline).toBe(
+      '4 jobs were overdue by more than 6 hours'
+    )
+    expect(signalsFromSnapshot({ ...clear, deadJobs: 3 })[0].headline).toBe(
+      '3 jobs exhausted their retries'
+    )
+  })
+
+  it('stays quiet about one account losing a connection', () => {
+    // That customer already has an email about it. Repeating it here is how a
+    // channel earns itself a filter rule.
+    expect(signalsFromSnapshot({ ...clear, accountsWithBrokenConnections: 1 })).toEqual([])
+  })
+
+  it('speaks up when several accounts break at once', () => {
+    // Simultaneous failures point at our configuration, not theirs, and
+    // nobody is going to report that.
+    const [signal] = signalsFromSnapshot({ ...clear, accountsWithBrokenConnections: 3 })
+    expect(signal.key).toBe('connections_broken_widely')
+    expect(signal.severity).toBe('critical')
+  })
+
+  it('reports every condition present, not just the worst', () => {
+    const signals = signalsFromSnapshot({
+      overdueJobs: 2,
+      webhookRejections24h: 5,
+      accountsWithBrokenConnections: 2,
+      deadJobs: 1,
+    })
+    expect(signals.map((s) => s.key)).toEqual([
+      'queue_stalled',
+      'webhook_rejections',
+      'connections_broken_widely',
+      'dead_jobs',
+    ])
   })
 })
