@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { getCustomerSession } from '@/lib/session'
-import { getSupabaseAdmin, appUrl } from '@/lib/config'
+import { appUrl } from '@/lib/config'
+import { findManageableSubscription } from '@/lib/billing'
 import { recordAudit, clientIp, userAgent } from '@/lib/audit'
 
 // Stripe's Billing Portal: where a customer changes payment method, sees
@@ -30,31 +31,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Billing is not configured' }, { status: 500 })
   }
 
-  const supabase = getSupabaseAdmin()
+  // The same lookup the Settings page uses. Previously each had its own query
+  // and they disagreed: the page reported no manageable subscription for an
+  // account this route would have opened the portal for.
+  const subscription = await findManageableSubscription(session.customerId)
+  const stripeCustomerId = subscription?.stripe_customer_id
 
-  // Keyed on customer_id alone, deliberately. Subscriptions are stored against
-  // the email that paid and linked to the account by
-  // claim_subscription_for_customer at every sign-in, so anyone who can reach
-  // this endpoint already has the link.
-  //
-  // The email fallback is not repeated here because expressing it needs
-  // PostgREST's `or()`, which takes a raw filter string rather than a bound
-  // parameter — interpolating an address into one makes the filter's meaning
-  // depend on the characters in it. `eq` binds properly, and nothing is lost.
-  const { data: rows, error } = await supabase
-    .from('subscriptions')
-    .select('stripe_customer_id, updated_at')
-    .eq('customer_id', session.customerId)
-    .not('stripe_customer_id', 'is', null)
-    .order('updated_at', { ascending: false })
-    .limit(1)
-
-  if (error) {
-    console.error('[billing/portal] subscription lookup failed:', error.message)
-    return NextResponse.json({ error: 'Could not reach billing' }, { status: 500 })
-  }
-
-  const stripeCustomerId = rows?.[0]?.stripe_customer_id
   if (!stripeCustomerId) {
     // Free accounts, and comps granted by hand, have no Stripe customer. A
     // normal state rather than a fault — the page hides the button, and this is
