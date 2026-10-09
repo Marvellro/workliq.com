@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import AuthFragmentGuard from './AuthFragmentGuard'
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -27,7 +28,13 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        {/* An expired sign-in link lands on whatever Supabase's Site URL is,
+            which is not a page that knows what to do with it. See the
+            component for why this is global rather than on the homepage. */}
+        <AuthFragmentGuard />
+        {children}
+      </body>
     </html>
   );
 }
