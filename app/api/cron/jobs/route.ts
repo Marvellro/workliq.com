@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { runJobs, enqueue } from '@/lib/jobs'
 import { registerJobHandlers } from '@/lib/job-handlers'
 import { runNotificationSweep } from '@/lib/notify'
-import { runOperatorAlert } from '@/lib/ops-alert'
+import { runOperatorAlert, countOverdueJobs } from '@/lib/ops-alert'
 import { enforceAllEntitlements } from '@/lib/entitlement-enforcement'
 
 // The queue worker.
@@ -34,6 +34,11 @@ export async function GET(req: Request) {
   registerJobHandlers()
 
   const startedAt = Date.now()
+
+  // Before the drain, deliberately: a count taken afterwards would have had
+  // the claimable jobs removed from it, and could never show a queue that
+  // earlier runs failed to clear.
+  const overdueJobs = await countOverdueJobs()
   const result = await runJobs({
     // Leave headroom under maxDuration so the loop stops claiming and returns
     // rather than being killed. A killed worker's jobs wait out a 5-minute
@@ -64,7 +69,7 @@ export async function GET(req: Request) {
 
   // And the half of that nobody was getting: conditions a customer cannot
   // fix, reported to whoever runs this.
-  const ops = await runOperatorAlert()
+  const ops = await runOperatorAlert(overdueJobs)
 
   const ms = Date.now() - startedAt
   if (result.claimed > 0) {

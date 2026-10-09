@@ -68,7 +68,33 @@ export type OpsAlertResult = {
  * Pure-ish: reads, decides, returns. Sending and cooldown are separate so the
  * judgement about what counts as a problem can be read on its own.
  */
-export async function collectOperatorSignals(): Promise<OperatorSignal[]> {
+export async function countOverdueJobs(): Promise<number> {
+  const { count } = await getSupabaseAdmin()
+    .from('jobs')
+    .select('id', { count: 'exact', head: true })
+    .eq('status', 'pending')
+    .lt('run_after', new Date(Date.now() - OVERDUE_HOURS * 3600_000).toISOString())
+
+  return count ?? 0
+}
+
+/**
+ * @param overdueJobs how many jobs were overdue when this invocation began.
+ *
+ * Measured by the caller, before it drains the queue, and that ordering is the
+ * whole point. Every entry point runs the drain immediately before alerting, so
+ * a count taken here would have already had the claimable jobs removed from it
+ * — the signal would only ever fire for a backlog too large for one drain to
+ * clear, while claiming that nothing was running. It would never detect the
+ * thing it is named after.
+ *
+ * Omitted, it is measured here, which under-reports rather than invents. That
+ * is the safe direction for a check whose false positives would train someone
+ * to ignore it.
+ */
+export async function collectOperatorSignals(
+  overdueJobs?: number
+): Promise<OperatorSignal[]> {
   const supabase = getSupabaseAdmin()
   const signals: OperatorSignal[] = []
 
@@ -76,19 +102,15 @@ export async function collectOperatorSignals(): Promise<OperatorSignal[]> {
   // The most serious thing on this list, because it is silent in both
   // directions: no workflow fires, and no digest goes out to say so, since the
   // sweep runs in the same place the drain does.
-  const { count: overdue } = await supabase
-    .from('jobs')
-    .select('id', { count: 'exact', head: true })
-    .eq('status', 'pending')
-    .lt('run_after', new Date(Date.now() - OVERDUE_HOURS * 3600_000).toISOString())
+  const overdue = overdueJobs ?? (await countOverdueJobs())
 
-  if (overdue && overdue > 0) {
+  if (overdue > 0) {
     signals.push({
       key: 'queue_stalled',
       severity: 'critical',
-      headline: `${overdue} job${overdue === 1 ? '' : 's'} overdue by more than ${OVERDUE_HOURS} hours`,
+      headline: `${overdue} job${overdue === 1 ? '' : 's'} were overdue by more than ${OVERDUE_HOURS} hours`,
       detail:
-        'Work is queued and nothing is running it. Customers get no automations and no digest either, because the sweep runs in the same invocation as the drain. Check that the cron is firing and that the worker is not erroring on claim.',
+        'Work had been queued that long without running, measured before this invocation drained anything — so earlier runs were not clearing it. Customers get no automations and no digest either, because the sweep runs in the same invocation as the drain. Check that the cron is firing and that the worker is not erroring on claim.',
     })
   }
 
@@ -164,7 +186,7 @@ export async function collectOperatorSignals(): Promise<OperatorSignal[]> {
  * alerting failure must not take delivery down with it — that would be the
  * monitoring causing the outage.
  */
-export async function runOperatorAlert(): Promise<OpsAlertResult> {
+export async function runOperatorAlert(overdueJobs?: number): Promise<OpsAlertResult> {
   const result: OpsAlertResult = { configured: false, found: 0, sent: 0, suppressed: 0 }
 
   const to = process.env.OPS_ALERT_EMAIL
@@ -182,7 +204,7 @@ export async function runOperatorAlert(): Promise<OpsAlertResult> {
 
   try {
     const supabase = getSupabaseAdmin()
-    const signals = await collectOperatorSignals()
+    const signals = await collectOperatorSignals(overdueJobs)
     result.found = signals.length
     if (signals.length === 0) return result
 

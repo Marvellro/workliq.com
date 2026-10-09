@@ -4,7 +4,7 @@ import { getSupabaseAdmin } from '@/lib/config'
 import { enqueue, runJobs } from '@/lib/jobs'
 import { registerJobHandlers } from '@/lib/job-handlers'
 import { runNotificationSweep } from '@/lib/notify'
-import { runOperatorAlert } from '@/lib/ops-alert'
+import { runOperatorAlert, countOverdueJobs } from '@/lib/ops-alert'
 import { recordAudit, clientIp, userAgent } from '@/lib/audit'
 
 // Inbound Stripe webhooks.
@@ -124,9 +124,11 @@ export async function POST(req: Request) {
   after(async () => {
     try {
       registerJobHandlers()
+      // Measured before the drain — see countOverdueJobs for why.
+      const overdueJobs = await countOverdueJobs()
       await runJobs({ budgetMs: 30_000, batchSize: 10 })
       await runNotificationSweep()
-      await runOperatorAlert()
+      await runOperatorAlert(overdueJobs)
     } catch (err) {
       console.error('[webhooks/stripe] post-response drain failed:', err)
     }
