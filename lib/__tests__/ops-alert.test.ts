@@ -87,3 +87,31 @@ describe('runOperatorAlert result shape', () => {
     if (before !== undefined) process.env.OPS_ALERT_EMAIL = before
   })
 })
+
+describe('collectOperatorSignals wording', () => {
+  // Read off the ops_alerts rows a real alert produced: "1 job were overdue"
+  // and "1 job exhausted their retries". Both pluralised the noun and forgot
+  // the verb. An alert that cannot count to one is one people stop trusting.
+  it('agrees in number for a single job', async () => {
+    const { collectOperatorSignals } = await import('../ops-alert')
+    const signals = await collectOperatorSignals(1)
+    const stalled = signals.find((s) => s.key === 'queue_stalled')
+
+    expect(stalled?.headline).toBe('1 job was overdue by more than 6 hours')
+    expect(stalled?.headline).not.toMatch(/\bjobs\b|\bwere\b/)
+  })
+
+  it('agrees in number for several', async () => {
+    const { collectOperatorSignals } = await import('../ops-alert')
+    const signals = await collectOperatorSignals(4)
+    const stalled = signals.find((s) => s.key === 'queue_stalled')
+
+    expect(stalled?.headline).toBe('4 jobs were overdue by more than 6 hours')
+  })
+
+  it('raises nothing when the queue is clear', async () => {
+    const { collectOperatorSignals } = await import('../ops-alert')
+    const signals = await collectOperatorSignals(0)
+    expect(signals.find((s) => s.key === 'queue_stalled')).toBeUndefined()
+  })
+})

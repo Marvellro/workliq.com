@@ -108,7 +108,10 @@ export async function collectOperatorSignals(
     signals.push({
       key: 'queue_stalled',
       severity: 'critical',
-      headline: `${overdue} job${overdue === 1 ? '' : 's'} were overdue by more than ${OVERDUE_HOURS} hours`,
+      headline:
+        overdue === 1
+          ? `1 job was overdue by more than ${OVERDUE_HOURS} hours`
+          : `${overdue} jobs were overdue by more than ${OVERDUE_HOURS} hours`,
       detail:
         'Work had been queued that long without running, measured before this invocation drained anything — so earlier runs were not clearing it. Customers get no automations and no digest either, because the sweep runs in the same invocation as the drain. Check that the cron is firing and that the worker is not erroring on claim.',
     })
@@ -168,7 +171,8 @@ export async function collectOperatorSignals(
     signals.push({
       key: 'dead_jobs',
       severity: 'warning',
-      headline: `${dead} job${dead === 1 ? '' : 's'} exhausted their retries`,
+      headline:
+        dead === 1 ? '1 job exhausted its retries' : `${dead} jobs exhausted their retries`,
       detail:
         'Customers are told about their own, so this is about the rate rather than any one of them. A cluster usually points at one cause rather than many.',
     })
