@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { runJobs, enqueue } from '@/lib/jobs'
 import { registerJobHandlers } from '@/lib/job-handlers'
 import { runNotificationSweep } from '@/lib/notify'
+import { runOperatorAlert } from '@/lib/ops-alert'
 import { enforceAllEntitlements } from '@/lib/entitlement-enforcement'
 
 // The queue worker.
@@ -61,6 +62,10 @@ export async function GET(req: Request) {
   // further day for the next one.
   const notified = await runNotificationSweep()
 
+  // And the half of that nobody was getting: conditions a customer cannot
+  // fix, reported to whoever runs this.
+  const ops = await runOperatorAlert()
+
   const ms = Date.now() - startedAt
   if (result.claimed > 0) {
     console.log(
@@ -68,5 +73,5 @@ export async function GET(req: Request) {
     )
   }
 
-  return NextResponse.json({ ok: true, ...result, enforced, notified, durationMs: ms })
+  return NextResponse.json({ ok: true, ...result, enforced, notified, ops, durationMs: ms })
 }

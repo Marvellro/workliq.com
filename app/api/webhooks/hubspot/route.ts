@@ -10,6 +10,7 @@ import {
 import { enqueue, runJobs } from '@/lib/jobs'
 import { registerJobHandlers } from '@/lib/job-handlers'
 import { runNotificationSweep } from '@/lib/notify'
+import { runOperatorAlert } from '@/lib/ops-alert'
 import { recordAudit, clientIp, userAgent } from '@/lib/audit'
 
 // Inbound HubSpot webhooks.
@@ -190,6 +191,7 @@ export async function POST(req: Request) {
         // do it in. Waiting for the daily cron would mean a customer learns
         // about a dead connection up to 24 hours after the first failure.
         await runNotificationSweep()
+        await runOperatorAlert()
         if (result.claimed > 0) {
           console.log(
             `[webhooks/hubspot] drained ${result.claimed}: ${result.succeeded} ok, ` +
