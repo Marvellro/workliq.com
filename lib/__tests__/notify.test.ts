@@ -11,6 +11,7 @@ function digest(over: Partial<CustomerDigest> = {}): CustomerDigest {
     email: 'someone@example.com',
     connections: [],
     pausedWorkflows: [],
+    plan: null,
     deadJobs: [],
     ...over,
   }
@@ -193,5 +194,60 @@ describe('paused workflows', () => {
     )
     expect(html).not.toContain('<script>')
     expect(html).toContain('&lt;script&gt;')
+  })
+})
+
+describe('paused workflows: naming the limit', () => {
+  // Found by reading the real email: it said "your plan allows fewer active
+  // workflows than you had running" and never said how many it does allow,
+  // which plan that is, or what to do about it. It invited the question it
+  // refused to answer.
+  const paused = [{ id: 'w1', name: 'Nightly digest', pausedAt: '2026-10-09T14:47:00.000Z' }]
+
+  it('names the plan and the allowance', () => {
+    const { html, text } = buildDigestEmail(
+      digest({ pausedWorkflows: paused, plan: { label: 'Free', maxWorkflows: 1 } })
+    )
+    for (const body of [html, text]) {
+      expect(body).toContain('Free')
+      expect(body).toMatch(/1 active workflow\b/)
+    }
+  })
+
+  it('pluralises the allowance', () => {
+    const { text } = buildDigestEmail(
+      digest({ pausedWorkflows: paused, plan: { label: 'Starter', maxWorkflows: 10 } })
+    )
+    expect(text).toMatch(/10 active workflows/)
+  })
+
+  it('says how to get them back', () => {
+    const { html, text } = buildDigestEmail(
+      digest({ pausedWorkflows: paused, plan: { label: 'Free', maxWorkflows: 1 } })
+    )
+    for (const body of [html, text]) {
+      expect(body).toMatch(/upgrade/i)
+      expect(body).toContain('/pricing')
+    }
+  })
+
+  it('offers a destination that works whatever state the account is in', () => {
+    // The workflows page redirects away when HubSpot is not connected, so an
+    // email whose only link went there could dead-end. /pricing always loads.
+    const { html } = buildDigestEmail(
+      digest({ pausedWorkflows: paused, plan: { label: 'Free', maxWorkflows: 1 } })
+    )
+    expect(html).toContain('/pricing')
+    expect(html).toContain('/dashboard/workflows')
+  })
+
+  it('still reads sensibly when the plan could not be resolved', () => {
+    // getEntitlements falls back to free on any error, but the lookup itself
+    // can fail — the email must not render a gap where a number should be.
+    const { html, text } = buildDigestEmail(digest({ pausedWorkflows: paused, plan: null }))
+    for (const body of [html, text]) {
+      expect(body).toMatch(/fewer active workflows than you had running/)
+      expect(body).not.toMatch(/undefined|null|NaN/)
+    }
   })
 })

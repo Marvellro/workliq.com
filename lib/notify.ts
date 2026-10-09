@@ -1,6 +1,7 @@
 import { Resend } from 'resend'
 import { getSupabaseAdmin, appUrl } from './config'
 import { providerLabel, type ConnectionProvider } from './connection-health'
+import { getEntitlements } from './plans'
 
 // The digest: the one place Workliq tells a customer something has gone wrong
 // without being asked.
@@ -49,6 +50,12 @@ export type CustomerDigest = {
   email: string
   connections: BrokenConnection[]
   pausedWorkflows: PausedWorkflow[]
+  /**
+   * Only resolved when something was paused, because it is only needed to
+   * explain that. "Your plan allows fewer than you had running" invites the
+   * question it does not answer.
+   */
+  plan: { label: string; maxWorkflows: number } | null
   deadJobs: DeadJob[]
 }
 
@@ -101,7 +108,7 @@ export async function runNotificationSweep(): Promise<SweepResult> {
   function digestFor(customerId: string): CustomerDigest {
     let d = digests.get(customerId)
     if (!d) {
-      d = { customerId, email: '', connections: [], pausedWorkflows: [], deadJobs: [] }
+      d = { customerId, email: '', connections: [], pausedWorkflows: [], plan: null, deadJobs: [] }
       digests.set(customerId, d)
     }
     return d
@@ -197,6 +204,14 @@ export async function runNotificationSweep(): Promise<SweepResult> {
       workflowName: workflowId ? workflowNames.get(workflowId) ?? null : null,
       createdAt: job.created_at,
     })
+  }
+
+  // Resolve the plan only for customers who had something paused — one lookup
+  // each, on the rare path, so the email can name the limit it is enforcing.
+  for (const digest of digests.values()) {
+    if (digest.pausedWorkflows.length === 0) continue
+    const entitlements = await getEntitlements(digest.customerId)
+    digest.plan = { label: entitlements.label, maxWorkflows: entitlements.maxWorkflows }
   }
 
   if (digests.size === 0) return result
@@ -341,12 +356,22 @@ function renderText(d: CustomerDigest): string {
     for (const w of d.pausedWorkflows) {
       lines.push(`* ${w.name}`)
     }
+    const allowance = d.plan
+      ? `Your ${d.plan.label} plan allows ${d.plan.maxWorkflows} active ${
+          d.plan.maxWorkflows === 1 ? 'workflow' : 'workflows'
+        }.`
+      : 'Your plan allows fewer active workflows than you had running.'
+
     lines.push(
       '',
-      'Your plan allows fewer active workflows than you had running, so the',
-      'oldest were kept and these were switched off. Nothing was deleted.',
+      allowance,
+      'The oldest were kept and these were switched off. Nothing was deleted.',
       '',
-      `Upgrade or re-enable: ${appUrl('/dashboard/workflows')}`,
+      'To run them again, upgrade — or turn one of these back on in place of',
+      'a workflow you are currently running.',
+      '',
+      `Your workflows: ${appUrl('/dashboard/workflows')}`,
+      `Plans: ${appUrl('/pricing')}`,
       ''
     )
   }
@@ -401,8 +426,14 @@ function renderHtml(d: CustomerDigest): string {
   if (d.pausedWorkflows.length > 0) {
     parts.push(
       `<h2 style="font-size:17px;font-weight:600;margin:0 0 4px">Paused by your plan</h2>`,
-      `<p style="font-size:14px;color:#6B7280;margin:0 0 16px">Your plan allows fewer active workflows than you had running. The oldest were kept and ${
-        d.pausedWorkflows.length === 1 ? 'this one was' : 'these were'
+      `<p style="font-size:14px;color:#6B7280;margin:0 0 16px">${
+        d.plan
+          ? `Your <strong>${escapeHtml(d.plan.label)}</strong> plan allows ${d.plan.maxWorkflows} active ${
+              d.plan.maxWorkflows === 1 ? 'workflow' : 'workflows'
+            }.`
+          : 'Your plan allows fewer active workflows than you had running.'
+      } The oldest ${
+        d.pausedWorkflows.length === 1 ? 'was kept and this one was' : 'were kept and these were'
       } switched off. Nothing was deleted.</p>`,
       `<table style="width:100%;border-collapse:collapse;font-size:13px">`
     )
@@ -413,7 +444,13 @@ function renderHtml(d: CustomerDigest): string {
     }
     parts.push(
       `</table>`,
-      `<p style="margin:16px 0 28px"><a href="${appUrl('/dashboard/workflows')}" style="font-size:14px;color:#1A56DB;text-decoration:none;font-weight:500">Review your workflows →</a></p>`
+      `<p style="font-size:13px;color:#6B7280;margin:12px 0 16px">To run them again, upgrade — or turn one back on in place of a workflow you are currently running.</p>`,
+      // Two destinations on purpose: the workflows page is where the action is,
+      // and /pricing is reachable whatever state the account is in.
+      `<p style="margin:0 0 28px">`,
+      `<a href="${appUrl('/pricing')}" style="display:inline-block;background:#1A56DB;color:#fff;font-size:14px;font-weight:600;text-decoration:none;border-radius:8px;padding:10px 18px;margin-right:10px">See plans</a>`,
+      `<a href="${appUrl('/dashboard/workflows')}" style="font-size:14px;color:#1A56DB;text-decoration:none;font-weight:500">Your workflows →</a>`,
+      `</p>`
     )
   }
 
