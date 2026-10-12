@@ -13,8 +13,10 @@
 # queue could go a day unreported — and a stalled queue is the one condition
 # where nobody receives anything, including the digest that would have said so.
 #
-# This closes that without a code change or a plan upgrade. The endpoint already
-# authenticates with CRON_SECRET; this is only something that calls it often.
+# This was meant to close that without a code change or a plan upgrade. It is
+# now the SECONDARY caller, not the mechanism — see the measured cadence below.
+# The primary is pg_cron in the database itself (021_queue_pinger.sql), calling
+# the same endpoint every minute.
 #
 # ── Why a failure here is left loud ──────────────────────────────────────────
 # A non-2xx fails the job, and GitHub emails about it. That is deliberate and
@@ -23,9 +25,14 @@
 # GitHub noticing is an independent channel that does not share that fate.
 #
 # ── Known limits, so nobody is surprised ─────────────────────────────────────
-#   * Five minutes is GitHub's floor for `schedule`, and it is best-effort:
-#     runs can be delayed under load, so treat it as "a few minutes", never as
-#     a guarantee.
+#   * Five minutes is GitHub's floor for `schedule`, and it is best-effort.
+#     Measured on this repository, not assumed: the workflow went live at
+#     12:11 UTC on 12 Oct 2026 and its first scheduled run started at 21:15 —
+#     9 hours 4 minutes later — and none followed in the next 110 minutes:
+#     one scheduled run in ~11 hours, against roughly 130 slots due. A manual
+#     dispatch at 12:41 worked first time, so this is GitHub's scheduler, not
+#     the workflow.
+#     That is why it is kept as a free second opinion rather than relied on.
 #   * GitHub disables scheduled workflows in a repository with 60 days of no
 #     activity. The Vercel daily cron stays in place precisely so something
 #     still runs if that happens.

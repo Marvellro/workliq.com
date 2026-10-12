@@ -11,11 +11,21 @@ throttle — a sub-daily schedule like `*/5 * * * *` fails the *deployment* with
 daily schedules, and nothing that needs to be timely is allowed to depend on
 cron.
 
-Since then a GitHub Actions workflow (`.github/workflows/worker.yml`) calls the
-worker endpoint every five minutes, which closes the gap described in section 2
-without upgrading the plan. The Vercel daily cron is deliberately kept: GitHub
-disables scheduled workflows in a repository that sees no activity for 60 days,
-and the floor should not disappear with it.
+Since then the gap described in section 2 is closed from inside the database:
+`pg_cron` calls the worker endpoint every minute (`021_queue_pinger.sql`),
+authenticating with `CRON_SECRET` read from Supabase Vault at run time. Coupling
+the pinger to Postgres is deliberate — when the database is down there is
+nothing to drain, so it fails exactly when draining was impossible anyway.
+
+A GitHub Actions workflow (`.github/workflows/worker.yml`) was tried first and
+is kept as a free secondary, not relied on. Its schedule is best-effort and,
+measured here, its first scheduled run arrived nine hours late. The Vercel daily
+cron is also kept, as the floor under both.
+
+Verifying the pinger: `cron.job_run_details` reports `succeeded` once the HTTP
+request is *enqueued*, so it is not evidence the worker ran. The evidence is in
+`net._http_response` (kept six hours) — a `status_code` of 200 and a body
+containing `"ok":true`.
 
 ## 1. Real time — the webhook path (no cron involved)
 
