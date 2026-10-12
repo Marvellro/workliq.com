@@ -1,0 +1,85 @@
+# Drives the job queue on a schedule Vercel's Hobby plan will not allow.
+#
+# Hobby caps cron at once per day — not as a throttle, but as a deployment
+# error: a sub-daily schedule in vercel.json fails the deploy outright. So
+# delivery was built to need no scheduler at all (the webhook receivers drain
+# the queue in after(), see lib/scheduling.md), and the daily cron was a floor
+# rather than the mechanism.
+#
+# What that floor could not cover is an account with no incoming webhooks. A
+# failed delivery there waited up to a day for its retry, because nothing came
+# along to drain the queue. Operator alerting made it worse rather than better:
+# it runs in the same invocation as the drain, so on a quiet account a stalled
+# queue could go a day unreported — and a stalled queue is the one condition
+# where nobody receives anything, including the digest that would have said so.
+#
+# This closes that without a code change or a plan upgrade. The endpoint already
+# authenticates with CRON_SECRET; this is only something that calls it often.
+#
+# ── Why a failure here is left loud ──────────────────────────────────────────
+# A non-2xx fails the job, and GitHub emails about it. That is deliberate and
+# more useful than it looks: when the worker endpoint is down, our own operator
+# alerting is down too, because the alert runs inside the thing that is failing.
+# GitHub noticing is an independent channel that does not share that fate.
+#
+# ── Known limits, so nobody is surprised ─────────────────────────────────────
+#   * Five minutes is GitHub's floor for `schedule`, and it is best-effort:
+#     runs can be delayed under load, so treat it as "a few minutes", never as
+#     a guarantee.
+#   * GitHub disables scheduled workflows in a repository with 60 days of no
+#     activity. The Vercel daily cron stays in place precisely so something
+#     still runs if that happens.
+#   * The repository is public, so Actions minutes are unlimited. On a private
+#     repo this same schedule would bill 288 jobs a day, each rounded up to a
+#     whole minute — more per month than the Vercel plan it avoids.
+
+name: Drain the job queue
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  # So it can be run by hand while debugging, without waiting for the schedule.
+  workflow_dispatch:
+
+# One at a time. The queue claims with FOR UPDATE SKIP LOCKED and leases, so
+# overlapping workers are safe by design — this just avoids piling up runs that
+# would find nothing to do.
+concurrency:
+  group: drain-queue
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  drain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Call the worker
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          WORKER_URL: https://www.workliq.com/api/cron/jobs
+        run: |
+          set -euo pipefail
+
+          if [ -z "${CRON_SECRET:-}" ]; then
+            echo "CRON_SECRET is not set in repository secrets — the worker cannot be called."
+            exit 1
+          fi
+
+          # Body and status captured separately so a failure can show what the
+          # endpoint said, rather than only that it was unhappy.
+          body=$(mktemp)
+          status=$(curl -sS --max-time 90 -o "$body" -w '%{http_code}' \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "${WORKER_URL}")
+
+          echo "HTTP ${status}"
+          cat "$body"
+          echo
+
+          if [ "$status" != "200" ]; then
+            echo "::error::Worker returned ${status}. The queue is not draining, and operator alerting runs inside the same endpoint, so it will not report this either."
+            exit 1
+          fi

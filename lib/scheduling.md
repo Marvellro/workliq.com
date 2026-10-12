@@ -11,6 +11,12 @@ throttle — a sub-daily schedule like `*/5 * * * *` fails the *deployment* with
 daily schedules, and nothing that needs to be timely is allowed to depend on
 cron.
 
+Since then a GitHub Actions workflow (`.github/workflows/worker.yml`) calls the
+worker endpoint every five minutes, which closes the gap described in section 2
+without upgrading the plan. The Vercel daily cron is deliberately kept: GitHub
+disables scheduled workflows in a repository that sees no activity for 60 days,
+and the floor should not disappear with it.
+
 ## 1. Real time — the webhook path (no cron involved)
 
 ```
