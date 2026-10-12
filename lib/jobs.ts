@@ -18,6 +18,7 @@ export type JobKind =
   | 'hubspot.event'        // process one inbound HubSpot webhook event
   | 'stripe.event'         // apply one inbound Stripe billing event
   | 'maintenance.purge'    // housekeeping
+  | 'diagnostic.noop'      // does nothing; planted to prove a worker drained the queue
 
 export type JobRecord = {
   id: string

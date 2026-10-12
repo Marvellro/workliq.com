@@ -27,6 +27,26 @@ request is *enqueued*, so it is not evidence the worker ran. The evidence is in
 `net._http_response` (kept six hours) — a `status_code` of 200 and a body
 containing `"ok":true`.
 
+Proving a drain end to end: plant a `diagnostic.noop` job and watch it. It does
+nothing, so it is safe whenever it runs — unlike `maintenance.purge`, which was
+used for this before and once deleted a row because it ran nine hours after its
+targets were counted. Plant it with `customer_id` null so it never appears on a
+customer's Activity page or in a digest:
+
+```sql
+insert into jobs (kind, payload, idempotency_key, max_attempts)
+values ('diagnostic.noop', '{"note":"why this was planted"}', 'probe:<label>', 1)
+returning id, created_at;
+
+-- then, after the next tick:
+select status, attempts, updated_at - created_at as waited
+from jobs where idempotency_key = 'probe:<label>';
+```
+
+Only plant one against a deployment that has the handler. An unregistered kind
+is dead-lettered on its first claim, and one dead job is enough to trip the
+operator alert.
+
 ## 1. Real time — the webhook path (no cron involved)
 
 ```

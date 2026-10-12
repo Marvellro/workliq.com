@@ -32,6 +32,7 @@ export function registerJobHandlers(): void {
   registerHandler('hubspot.event', handleHubSpotEvent)
   registerHandler('stripe.event', handleStripeEvent)
   registerHandler('maintenance.purge', handleMaintenancePurge)
+  registerHandler('diagnostic.noop', handleDiagnosticNoop)
 }
 
 // ── workflow.action ──────────────────────────────────────────────────────────
@@ -498,4 +499,28 @@ async function handleMaintenancePurge(): Promise<void> {
   console.log(
     `[maintenance.purge] removed ${jobs.data ?? 0} finished job(s), ${limits.data ?? 0} rate-limit row(s)`
   )
+}
+
+// ── diagnostic.noop ──────────────────────────────────────────────────────────
+
+// Does nothing, on purpose.
+//
+// It exists to be planted in the queue and watched: when the row goes from
+// pending to succeeded, something drained the queue. Every scheduler here was
+// verified that way — but until this kind existed, the only one available to
+// plant was maintenance.purge, which deletes rows. A safety check on a
+// destructive probe is only true at the moment it is taken, and a probe planted
+// for a scheduler you do not control can run hours later. One did: planted
+// against GitHub's schedule, it ran nine hours after its targets were counted,
+// and deleted a row that had crossed retention in between.
+//
+// So this must stay free of side effects — no database, no network, nothing
+// whose outcome depends on when it runs. The worker's own claim and completion
+// are the observable; the handler adds nothing to them. The test for this file
+// fails if the handler ever reaches for the database or the network.
+//
+// Plant it with customer_id null, so it never appears on a customer's Activity
+// page or in a digest. The recipe is in lib/scheduling.md.
+export async function handleDiagnosticNoop(job: JobRecord): Promise<void> {
+  console.log(`[diagnostic.noop] drained job ${job.id}`)
 }
