@@ -4,6 +4,7 @@ import { registerJobHandlers } from '@/lib/job-handlers'
 import { runNotificationSweep } from '@/lib/notify'
 import { runOperatorAlert, countOverdueJobs } from '@/lib/ops-alert'
 import { enforceAllEntitlements } from '@/lib/entitlement-enforcement'
+import { sendHeartbeat } from '@/lib/heartbeat'
 
 // The queue worker.
 //
@@ -71,6 +72,15 @@ export async function GET(req: Request) {
   // fix, reported to whoever runs this.
   const ops = await runOperatorAlert(overdueJobs)
 
+  // Healthy means the queue could be read — not merely that the handler got
+  // this far. An unreachable database used to come back as claimed: 0 and a
+  // 200, indistinguishable from an empty queue. See lib/heartbeat.ts.
+  const healthy = !result.claimFailed
+
+  // Last, so that anything above throwing means no heartbeat. The switch only
+  // works if a broken run is silent.
+  const heartbeat = await sendHeartbeat({ healthy })
+
   const ms = Date.now() - startedAt
   if (result.claimed > 0) {
     console.log(
@@ -78,5 +88,11 @@ export async function GET(req: Request) {
     )
   }
 
-  return NextResponse.json({ ok: true, ...result, enforced, notified, ops, durationMs: ms })
+  return NextResponse.json(
+    { ok: healthy, ...result, enforced, notified, ops, heartbeat, durationMs: ms },
+    // A run that could not reach the queue is a failure, and every caller
+    // should see one: pg_net records the status, and the GitHub workflow fails
+    // loudly on anything but 200.
+    { status: healthy ? 200 : 503 }
+  )
 }

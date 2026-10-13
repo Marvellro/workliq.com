@@ -22,6 +22,16 @@ is kept as a free secondary, not relied on. Its schedule is best-effort and,
 measured here, its first scheduled run arrived nine hours late. The Vercel daily
 cron is also kept, as the floor under both.
 
+Watching the worker from outside: nothing inside the system can report the
+worker being down, because the operator alert runs inside it. So each healthy
+run sends a bare GET to `WORKER_HEARTBEAT_URL`, and an outside service emails
+when those pings stop (`lib/heartbeat.ts`; setup in `MIGRATION.md`,
+"Operations"). "Healthy" means the queue could be read: an unreachable database
+used to return `claimed: 0` and a 200, indistinguishable from an empty queue,
+and now returns 503 with no heartbeat. Every response reports `heartbeat` as
+`sent`, `withheld`, `failed`, `misconfigured` or `unconfigured` — the last
+deliberately distinct, so an unarmed switch never looks like a working one.
+
 Verifying the pinger: `cron.job_run_details` reports `succeeded` once the HTTP
 request is *enqueued*, so it is not evidence the worker ran. The evidence is in
 `net._http_response` (kept six hours) — a `status_code` of 200 and a body

@@ -147,12 +147,12 @@ this does not hurt:
   just its own work.
 - **The daily crons are the floor**, not the mechanism.
 
-The one gap: on an account with no deal activity, a failed delivery could wait
-up to a day for its retry. Either of these removes that, with no code change:
-
-- Upgrade to Vercel Pro and set `/api/cron/jobs` to `* * * * *` in `vercel.json`.
-- Point any external scheduler at `GET /api/cron/jobs` every minute with
-  `Authorization: Bearer $CRON_SECRET`. Free; the endpoint already authenticates.
+The one gap this left — on an account with no deal activity, a failed delivery
+could wait up to a day for its retry — is closed. `pg_cron` calls
+`/api/cron/jobs` every minute from the database (`021_queue_pinger.sql`), and
+the worker's health is watched from outside by a dead-man's switch (see
+"Operations" at the end of this file). A GitHub Actions schedule was tried first
+and kept only as a secondary: its first scheduled run was nine hours late.
 
 See `lib/scheduling.md` for the full reasoning.
 
@@ -330,3 +330,57 @@ in Vercel. If they don't match the account the subscriptions are bought in,
 every subscription logs the unrecognised-price error and falls back to metadata
 — which still works for checkout-created subscriptions, but silently loses
 Billing Portal upgrades.
+
+---
+
+# Operations — the worker and its watchdog
+
+## Already applied
+
+`021_queue_pinger.sql` is live: `pg_cron` calls the worker every minute, with
+`CRON_SECRET` read from Supabase Vault (secret name `cron_secret`).
+
+## What you need to do: arm the dead-man's switch
+
+Nothing inside the system can report the worker being down — the operator alert
+runs inside the worker. So a healthy run pings an outside service, and that
+service emails you when the pings stop.
+
+1. Create a free account at healthchecks.io (any provider with a plain GET ping
+   URL works the same way).
+2. Add a check. **Period: 1 minute. Grace: 10 minutes.** The worker runs every
+   minute; ten minutes of silence means something is genuinely wrong rather
+   than one slow run.
+3. Copy the check's ping URL into Vercel as `WORKER_HEARTBEAT_URL`, for the
+   **Production environment only**. A preview deployment pinging the
+   production check would hide a production failure.
+4. Redeploy — environment variable changes only reach new deployments.
+5. Confirm: the worker's response now includes `"heartbeat":"sent"`
+   (readable in `net._http_response`), and the check shows a ping a minute.
+
+Until the variable is set, every response says `"heartbeat":"unconfigured"` —
+deliberately distinct from healthy, so an unarmed switch cannot pass for one
+that is working.
+
+**Treat the ping URL as a secret.** Anyone holding it can send "alive" pings and
+mask a real outage. It is never logged.
+
+**The ping carries no data** — a bare GET, so the service learns only that a run
+succeeded. That is what keeps the privacy policy's vendor list ("This list is
+complete") true. Do not add run details to it without amending the policy.
+
+## What counts as healthy
+
+A run is healthy when the queue could actually be read. Until this change, an
+unreachable database came back as `claimed: 0` with a 200 — identical to an
+empty queue — so the worker reported itself fine through an outage. It now
+answers **503** with `"ok":false` and sends no heartbeat.
+
+## Rotating CRON_SECRET
+
+It lives in three places: Vercel, GitHub repository secrets, and Supabase Vault.
+Change all three together; there is no gap-free order, because the endpoint
+accepts exactly one secret. If Vault is missed, the pinger receives 401s, the
+heartbeat stops, and the switch emails you within the grace period — which is
+the failure this whole section exists to catch.
+

@@ -122,6 +122,14 @@ export type RunResult = {
   succeeded: number
   retried: number
   dead: number
+  /**
+   * True when the queue could not be read at all. Without this, a database
+   * outage and an empty queue produced the same result — claimed: 0 — and the
+   * worker reported itself healthy through an outage. Anything that treats a
+   * run as proof the system works (the heartbeat, see lib/heartbeat.ts) must
+   * check this, not the counts.
+   */
+  claimFailed: boolean
 }
 
 /**
@@ -143,7 +151,7 @@ export async function runJobs(options: {
 
   const supabase = getSupabaseAdmin()
   const startedAt = Date.now()
-  const result: RunResult = { claimed: 0, succeeded: 0, retried: 0, dead: 0 }
+  const result: RunResult = { claimed: 0, succeeded: 0, retried: 0, dead: 0, claimFailed: false }
 
   while (Date.now() - startedAt < budgetMs) {
     const { data, error } = await supabase.rpc('claim_jobs', {
@@ -154,6 +162,7 @@ export async function runJobs(options: {
 
     if (error) {
       console.error('[jobs] claim failed:', error.message)
+      result.claimFailed = true
       break
     }
 
