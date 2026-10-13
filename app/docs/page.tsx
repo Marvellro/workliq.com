@@ -48,6 +48,7 @@ To disconnect an integration, click Disconnect next to its name. This immediatel
       title: "5. Troubleshooting",
       content: `Common issues:
 
+• Not sure a workflow works — press Test on it to run it now against one of your real deals and see what each step did
 • Workflow not triggering — check that the integration is still connected and the trigger conditions are correct
 • Missing data in a step — confirm the integration has the required scopes approved
 • Slow updates — some integrations sync on a schedule rather than in real time
@@ -56,7 +57,9 @@ If you're still stuck, contact us at support@workliq.com.`
     },
     {
       title: "6. API & Webhooks",
-      content: "Workliq supports outbound webhooks so you can trigger external systems from a workflow. API access for building custom integrations is on our roadmap — reach out if you'd like early access."
+      content: `Workliq supports outbound webhooks so you can trigger external systems from a workflow. API access for building custom integrations is on our roadmap — reach out if you'd like early access.
+
+Test runs are delivered to your webhook for real, so your endpoint can tell them apart: the body carries "test": true, and the request has an X-Workliq-Test: true header. Trust the body field — it is covered by the request's signature; the header is not. Real events carry no test field at all.`
     },
   ];
 

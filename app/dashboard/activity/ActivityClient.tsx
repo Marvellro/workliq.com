@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useCallback, useEffect, useSyncExternalStore } from 'react'
+import { describeTrigger } from '@/lib/run-labels'
 
 type Run = {
   id: string
@@ -78,18 +79,6 @@ function timeAgo(iso: string, now: number): string {
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`
   if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`
   return `${Math.floor(seconds / 86400)}d ago`
-}
-
-function describeTrigger(fingerprint: string, dealId: string): string {
-  // Fingerprints are built by the engine as:
-  //   deal_created        -> "<dealId>"
-  //   deal_stage_changed  -> "<dealId>:<stage>"
-  //   deal_stale          -> "<dealId>:<thresholdDays>"
-  const suffix = fingerprint.startsWith(`${dealId}:`)
-    ? fingerprint.slice(dealId.length + 1)
-    : null
-  if (!suffix) return 'Deal created'
-  return /^\d+$/.test(suffix) ? `Stale ${suffix}+ days` : `Moved to ${suffix}`
 }
 
 // The current time is an external, mutable source, which is exactly what

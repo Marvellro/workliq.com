@@ -87,6 +87,39 @@ export async function fetchOwnerMap(accessToken: string): Promise<Map<string, st
   return ownerMap
 }
 
+// The most recently modified deals, newest first — what a customer is likely to
+// recognise when picking one to test a workflow against.
+//
+// One search call capped at `limit`, rather than fetchAllDeals, which pages
+// through every deal in the portal. A picker needs twenty, and paging a large
+// portal to show twenty would spend the customer's HubSpot API quota on
+// nothing. Same read scope as the list endpoint.
+export async function fetchRecentDeals(
+  customerId: string,
+  accessToken: string,
+  limit = 20
+): Promise<HubSpotDeal[]> {
+  const res = await fetch('https://api.hubapi.com/crm/v3/objects/deals/search', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      sorts: [{ propertyName: 'hs_lastmodifieddate', direction: 'DESCENDING' }],
+      properties: DEAL_PROPERTIES.split(','),
+      limit: Math.min(Math.max(1, Math.floor(limit)), 100),
+    }),
+  })
+
+  if (!res.ok) {
+    const body = await res.text()
+    const dead = hubspotApiFailure(customerId, res.status, body)
+    if (dead) throw dead
+    throw new Error(`HubSpot deal search failed (${res.status}): ${body}`)
+  }
+
+  const data = (await res.json()) as { results: HubSpotDeal[] }
+  return data.results
+}
+
 export function hubspotDealLink(hubId: string, dealId: string): string {
   return `https://app.hubspot.com/contacts/${hubId}/deal/${dealId}`
 }

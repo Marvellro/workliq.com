@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { upsertWorkflow } from '@/lib/workflow-list'
+import WorkflowTestPanel from './WorkflowTestPanel'
 
 type TriggerType = 'deal_stage_changed' | 'deal_created' | 'deal_stale'
 type ActionType = 'slack_message' | 'notion_row' | 'webhook' | 'ai_step'
@@ -109,6 +110,8 @@ export default function WorkflowsClient({ initialWorkflows, slackConnected, noti
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<Workflow | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
+  // One test panel open at a time: each one loads deals from HubSpot.
+  const [testingId, setTestingId] = useState<string | null>(null)
 
   async function handleToggle(id: string, enabled: boolean) {
     setBusyId(id)
@@ -203,50 +206,63 @@ export default function WorkflowsClient({ initialWorkflows, slackConnected, noti
         {workflows.map((w) => (
           <div
             key={w.id}
-            style={{ background: '#fff', border: '0.5px solid #E5E7EB', borderRadius: 12, padding: '1.1rem 1.5rem', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', opacity: busyId === w.id ? 0.6 : 1 }}
+            style={{ background: '#fff', border: '0.5px solid #E5E7EB', borderRadius: 12, padding: '1.1rem 1.5rem', marginBottom: '0.75rem', opacity: busyId === w.id ? 0.6 : 1 }}
           >
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 15, fontWeight: 600, color: '#0D0F1A', marginBottom: 3 }}>{w.name}</div>
-              <div style={{ fontSize: 13, color: '#6B7280' }}>{summarize(w)}</div>
-              {/* Distinguishing "you paused this" from "your plan paused this"
-                  is the point of the flag — otherwise a workflow that stopped
-                  looks like one the customer switched off and forgot. */}
-              {w.paused_by_plan && !w.enabled && (
-                <div style={{ fontSize: 12, color: '#92400E', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 6, padding: '0.3rem 0.55rem', marginTop: 6, display: 'inline-block' }}>
-                  Paused by your plan — your plan allows fewer active workflows than you had running.
-                  Nothing was deleted; turning it back on may need an upgrade.
-                </div>
-              )}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 15, fontWeight: 600, color: '#0D0F1A', marginBottom: 3 }}>{w.name}</div>
+                <div style={{ fontSize: 13, color: '#6B7280' }}>{summarize(w)}</div>
+                {/* Distinguishing "you paused this" from "your plan paused this"
+                    is the point of the flag — otherwise a workflow that stopped
+                    looks like one the customer switched off and forgot. */}
+                {w.paused_by_plan && !w.enabled && (
+                  <div style={{ fontSize: 12, color: '#92400E', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 6, padding: '0.3rem 0.55rem', marginTop: 6, display: 'inline-block' }}>
+                    Paused by your plan — your plan allows fewer active workflows than you had running.
+                    Nothing was deleted; turning it back on may need an upgrade.
+                  </div>
+                )}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexShrink: 0 }}>
+                <button
+                  onClick={() => handleToggle(w.id, !w.enabled)}
+                  disabled={busyId === w.id}
+                  style={{
+                    fontSize: 12, fontWeight: 600, borderRadius: 20, padding: '0.25rem 0.65rem', border: '1px solid',
+                    cursor: busyId === w.id ? 'default' : 'pointer',
+                    color: w.enabled ? '#166534' : '#6B7280',
+                    background: w.enabled ? '#F0FDF4' : '#F9FAFB',
+                    borderColor: w.enabled ? '#BBF7D0' : '#E5E7EB',
+                  }}
+                >
+                  {w.enabled ? 'Enabled' : 'Paused'}
+                </button>
+                <button
+                  onClick={() => setTestingId(testingId === w.id ? null : w.id)}
+                  disabled={busyId === w.id}
+                  aria-expanded={testingId === w.id}
+                  style={{ fontSize: 13, color: '#1A56DB', background: 'none', border: '1px solid #BFDBFE', borderRadius: 6, padding: '0.35rem 0.65rem', cursor: busyId === w.id ? 'default' : 'pointer' }}
+                >
+                  Test
+                </button>
+                <button
+                  onClick={() => { setEditing(w); setShowForm(false); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
+                  disabled={busyId === w.id}
+                  style={{ fontSize: 13, color: '#374151', background: 'none', border: '1px solid #E5E7EB', borderRadius: 6, padding: '0.35rem 0.65rem', cursor: busyId === w.id ? 'default' : 'pointer' }}
+                >
+                  Edit
+                </button>
+                <button
+                  onClick={() => handleDelete(w.id)}
+                  disabled={busyId === w.id}
+                  style={{ fontSize: 13, color: '#991B1B', background: 'none', border: '1px solid #FECACA', borderRadius: 6, padding: '0.35rem 0.65rem', cursor: busyId === w.id ? 'default' : 'pointer' }}
+                >
+                  Delete
+                </button>
+              </div>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexShrink: 0 }}>
-              <button
-                onClick={() => handleToggle(w.id, !w.enabled)}
-                disabled={busyId === w.id}
-                style={{
-                  fontSize: 12, fontWeight: 600, borderRadius: 20, padding: '0.25rem 0.65rem', border: '1px solid',
-                  cursor: busyId === w.id ? 'default' : 'pointer',
-                  color: w.enabled ? '#166534' : '#6B7280',
-                  background: w.enabled ? '#F0FDF4' : '#F9FAFB',
-                  borderColor: w.enabled ? '#BBF7D0' : '#E5E7EB',
-                }}
-              >
-                {w.enabled ? 'Enabled' : 'Paused'}
-              </button>
-              <button
-                onClick={() => { setEditing(w); setShowForm(false); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
-                disabled={busyId === w.id}
-                style={{ fontSize: 13, color: '#374151', background: 'none', border: '1px solid #E5E7EB', borderRadius: 6, padding: '0.35rem 0.65rem', cursor: busyId === w.id ? 'default' : 'pointer' }}
-              >
-                Edit
-              </button>
-              <button
-                onClick={() => handleDelete(w.id)}
-                disabled={busyId === w.id}
-                style={{ fontSize: 13, color: '#991B1B', background: 'none', border: '1px solid #FECACA', borderRadius: 6, padding: '0.35rem 0.65rem', cursor: busyId === w.id ? 'default' : 'pointer' }}
-              >
-                Delete
-              </button>
-            </div>
+            {testingId === w.id && (
+              <WorkflowTestPanel workflowId={w.id} enabled={w.enabled} onClose={() => setTestingId(null)} />
+            )}
           </div>
         ))}
       </div>

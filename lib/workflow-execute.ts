@@ -26,6 +26,7 @@ import {
   type DealFacts,
 } from './ai'
 import type { WorkflowRow, TriggerEvent } from './workflow-engine'
+import { isTestFingerprint } from './test-fingerprint'
 
 // Executes exactly one workflow action, for one deal, for one event.
 //
@@ -92,6 +93,65 @@ function defaultSlackText(payload: ActionPayload): string {
   return [headline, `Owner: ${payload.ownerName}`, `<${link}|View in HubSpot>`].join('\n')
 }
 
+// ── Test runs ────────────────────────────────────────────────────────────────
+//
+// A test delivers for real — that is the point of it: the customer sees the
+// Slack message their team would see, the Notion row, the webhook their system
+// would receive. So every delivery carries an unmissable marker, and these are
+// the only places that differ from a live run. Each is a no-op when `test` is
+// false, so the live path is byte-for-byte what it was.
+
+/** Heads a Slack message, so nobody acts on a test as if a deal had moved. */
+export function markSlackText(text: string, test: boolean): string {
+  return test ? `🧪 *Test run* — not a real HubSpot event\n${text}` : text
+}
+
+/** Prefixes a Notion row's title, so a test row is never worked as a real lead. */
+export function markTitle(title: string, test: boolean): string {
+  return test ? `[Test] ${title}` : title
+}
+
+/**
+ * The webhook body.
+ *
+ * `test: true` is added only to test runs and is absent on real ones, so
+ * existing integrations that validate the payload strictly see no change. It
+ * lives in the body rather than only a header because the body is what the
+ * signature covers: a receiver can trust it.
+ */
+export function webhookBody(args: {
+  workflow: Pick<WorkflowRow, 'id' | 'name'>
+  payload: ActionPayload
+  facts: TemplateFacts
+  outputs: (string | null)[]
+  test: boolean
+}): Record<string, unknown> {
+  const { workflow, payload, facts, outputs, test } = args
+  return {
+    workflow_id: workflow.id,
+    workflow_name: workflow.name,
+    trigger: payload.event.type,
+    deal_id: payload.dealId,
+    deal_name: payload.dealName,
+    stage: payload.dealStage,
+    owner: payload.ownerName,
+    hubspot_link: facts.link,
+    // Whatever earlier steps produced, so a webhook can be the thing that
+    // receives an AI draft rather than only the raw deal.
+    steps: outputs,
+    ...(test ? { test: true } : {}),
+  }
+}
+
+export type ExecuteOptions = {
+  /**
+   * A test run, started by the customer from the workflows page. Delivers for
+   * real but marked as a test, runs even when the workflow is switched off, and
+   * must be recorded under a test fingerprint.
+   */
+  test?: boolean
+}
+
 /**
  * Runs a workflow's steps in order, recording each one in `workflow_runs`.
  *
@@ -106,7 +166,26 @@ function defaultSlackText(payload: ActionPayload): string {
  * what the customer asked for silently did not happen — and the whole reason
  * this ledger exists is to stop that being possible.
  */
-export async function executeWorkflowAction(payload: ActionPayload): Promise<void> {
+export async function executeWorkflowAction(
+  payload: ActionPayload,
+  options: ExecuteOptions = {}
+): Promise<void> {
+  const test = options.test === true
+
+  // The fingerprint and the mode must agree, in both directions, and this is
+  // checked before anything is read or claimed. A test under a real
+  // fingerprint would claim the real event's rows and later suppress the real
+  // alert as already delivered. A live run under a test fingerprint would
+  // deliver unmarked while Activity labelled it a test. Either is a bug in the
+  // caller, and refusing is cheaper than recording a lie.
+  if (test !== isTestFingerprint(payload.event.fingerprint)) {
+    throw new PermanentJobError(
+      test
+        ? 'A test run must be recorded under a test fingerprint'
+        : 'A live run cannot be recorded under a test fingerprint'
+    )
+  }
+
   const supabase = getSupabaseAdmin()
 
   const { data: workflow, error: workflowError } = await supabase
@@ -123,9 +202,13 @@ export async function executeWorkflowAction(payload: ActionPayload): Promise<voi
     // Deleted between enqueue and execution. Retrying cannot bring it back.
     throw new PermanentJobError(`Workflow ${payload.workflowId} no longer exists`)
   }
-  if (!workflow.enabled) {
+  if (!workflow.enabled && !test) {
     // Disabled after the job was queued — honour the customer's intent rather
     // than firing an action they just switched off.
+    //
+    // A test is exempt, and on purpose: trying a workflow out before switching
+    // it on is the main reason to test at all. The customer asked for this run
+    // explicitly, which is the same intent the check above exists to honour.
     throw new PermanentJobError(`Workflow ${payload.workflowId} is disabled`)
   }
 
@@ -183,7 +266,7 @@ export async function executeWorkflowAction(payload: ActionPayload): Promise<voi
     }
 
     try {
-      const output = await runStep(step, { workflow: row, payload, supabase, facts, outputs })
+      const output = await runStep(step, { workflow: row, payload, supabase, facts, outputs, test })
       outputs[index] = output
 
       await supabase
@@ -228,6 +311,7 @@ type StepContext = {
   supabase: ReturnType<typeof getSupabaseAdmin>
   facts: TemplateFacts
   outputs: (string | null)[]
+  test: boolean
 }
 
 /**
@@ -240,7 +324,7 @@ type StepContext = {
  * own sake.
  */
 async function runStep(step: WorkflowStep, ctx: StepContext): Promise<string | null> {
-  const { payload, supabase, facts, outputs } = ctx
+  const { payload, supabase, facts, outputs, test } = ctx
   const config = step.action_config ?? {}
 
   switch (step.action_type) {
@@ -257,7 +341,7 @@ async function runStep(step: WorkflowStep, ctx: StepContext): Promise<string | n
         ? fillTemplate(config.message_template, facts, outputs)
         : defaultSlackText(payload)
 
-      await sendSlackMessage(payload.customerId, decrypt(conn.webhook_url), text)
+      await sendSlackMessage(payload.customerId, decrypt(conn.webhook_url), markSlackText(text, test))
       return null
     }
 
@@ -271,7 +355,7 @@ async function runStep(step: WorkflowStep, ctx: StepContext): Promise<string | n
       if (!conn) throw new PermanentJobError('No Notion connection for this customer')
 
       const properties: Record<string, unknown> = {
-        'Deal Name': { title: [{ text: { content: facts.dealName } }] },
+        'Deal Name': { title: [{ text: { content: markTitle(facts.dealName, test) } }] },
         Stage: { select: { name: payload.dealStage ?? 'Unknown' } },
         Owner: { rich_text: [{ text: { content: payload.ownerName } }] },
         'Flagged On': { date: { start: new Date().toISOString().split('T')[0] } },
@@ -315,20 +399,11 @@ async function runStep(step: WorkflowStep, ctx: StepContext): Promise<string | n
 
       await callWebhook(
         url,
-        {
-          workflow_id: ctx.workflow.id,
-          workflow_name: ctx.workflow.name,
-          trigger: payload.event.type,
-          deal_id: payload.dealId,
-          deal_name: payload.dealName,
-          stage: payload.dealStage,
-          owner: payload.ownerName,
-          hubspot_link: facts.link,
-          // Whatever earlier steps produced, so a webhook can be the thing that
-          // receives an AI draft rather than only the raw deal.
-          steps: outputs,
-        },
-        secret
+        webhookBody({ workflow: ctx.workflow, payload, facts, outputs, test }),
+        secret,
+        // Convenience for receivers that route on headers. Not signed — the
+        // body's `test: true` is the marker to trust.
+        test ? { 'X-Workliq-Test': 'true' } : {}
       )
       return null
     }
@@ -347,7 +422,7 @@ async function runStep(step: WorkflowStep, ctx: StepContext): Promise<string | n
  * delivery as its own step, which is the entire point of this change.
  */
 async function runAIStepAction(step: WorkflowStep, ctx: StepContext): Promise<string> {
-  const { workflow, payload, supabase, facts } = ctx
+  const { workflow, payload, supabase, facts, test } = ctx
   const config = step.action_config ?? {}
 
   const task = config.ai_task as AITask | undefined
@@ -402,7 +477,7 @@ async function runAIStepAction(step: WorkflowStep, ctx: StepContext): Promise<st
       payload.customerId,
       { access_token: decrypt(notionConn.access_token), database_id: notionConn.database_id },
       {
-        'Deal Name': { title: [{ text: { content: facts.dealName } }] },
+        'Deal Name': { title: [{ text: { content: markTitle(facts.dealName, test) } }] },
         Stage: { select: { name: payload.dealStage ?? 'Unknown' } },
         Owner: { rich_text: [{ text: { content: payload.ownerName } }] },
         // Notion caps a rich_text value at 2000 characters.
@@ -425,7 +500,7 @@ async function runAIStepAction(step: WorkflowStep, ctx: StepContext): Promise<st
   await sendSlackMessage(
     payload.customerId,
     decrypt(slackConn.webhook_url),
-    [header, '', text, '', `<${facts.link}|View in HubSpot>`].join('\n')
+    markSlackText([header, '', text, '', `<${facts.link}|View in HubSpot>`].join('\n'), test)
   )
 
   // Returned regardless of delivery, so a later step can still reference it.

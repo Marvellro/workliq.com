@@ -30,6 +30,13 @@ export const RATE_LIMITS = {
   waitlist: { windowSeconds: 3600, max: 5 },
   // Generous: this only exists to stop a runaway script.
   workflowWrite: { windowSeconds: 60, max: 30 },
+  // A test makes the product send real things on demand — Slack messages,
+  // Notion rows, requests to a customer's webhook URL, paid AI calls. Ten in
+  // ten minutes covers someone iterating on a template; it does not cover
+  // using the button to drive a third-party endpoint from our servers.
+  workflowTest: { windowSeconds: 600, max: 10 },
+  // Listing deals spends the customer's own HubSpot API quota.
+  dealLookup: { windowSeconds: 60, max: 20 },
   oauthStart: { windowSeconds: 300, max: 20 },
 } as const satisfies Record<string, RateLimitRule>
 

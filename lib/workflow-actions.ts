@@ -172,7 +172,13 @@ export async function getOrCreateWebhookSecret(customerId: string): Promise<stri
 export async function callWebhook(
   url: string,
   payload: unknown,
-  secret: string
+  secret: string,
+  /**
+   * Added after the signing headers, which it cannot override. Used only to
+   * mark a test run; the authoritative marker is `test: true` in the body,
+   * because the body is signed and a header is not.
+   */
+  extraHeaders: Record<string, string> = {}
 ): Promise<void> {
   // Serialise once, sign those bytes, send those same bytes. safePostJson takes
   // a string precisely so the signature always covers what is transmitted.
@@ -180,6 +186,7 @@ export async function callWebhook(
   const { timestamp, signature } = signWebhookPayload(secret, body)
 
   const res = await safePostJson(url, body, {
+    ...extraHeaders,
     'X-Workliq-Timestamp': timestamp,
     'X-Workliq-Signature': `sha256=${signature}`,
     'User-Agent': 'Workliq-Webhook/1.0',
