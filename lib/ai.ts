@@ -38,6 +38,115 @@ export class AIConfigError extends Error {
   }
 }
 
+// ── When our Anthropic account is the problem ───────────────────────────────
+//
+// Some refusals have nothing to do with the customer or the request: the API
+// key is missing or rejected, the account is out of credit, billing failed,
+// the key lacks permission, or the model is not available to the org. Every
+// customer's AI steps fail at once, and none of them can do anything about it.
+//
+// Found by "Send a test" on 9 Nov 2026: the account had run out of credit, and
+// the refusal reached the customer as a permanent failure reading "Please go to
+// Plans & Billing to upgrade or purchase credits" — which a customer would take
+// to mean their Workliq plan. It was never retried, so the alert would have
+// been lost rather than delayed, and it was charged against the customer's AI
+// budget although the request never reached the model.
+//
+// This is the same distinction connection-health.ts draws for HubSpot, where a
+// dead refresh token and a wrong client secret are both a 400 from the same
+// endpoint but only one of them is the customer's to fix.
+
+/** What the customer reads. True on a live run and on a test, which never retries. */
+export const AI_PROVIDER_UNAVAILABLE_MESSAGE =
+  "AI steps are temporarily unavailable because of a problem on Workliq's side, not with this workflow. There is nothing you need to change."
+
+/**
+ * Prefixes ai_usage.error_message on these refusals, so the operator alert can
+ * count them (lib/ops-alert.ts). The provider's own text follows it.
+ */
+export const PROVIDER_REFUSAL_MARK = 'provider_unavailable: '
+
+export class AIProviderUnavailableError extends Error {
+  /** The provider's own explanation. For the operator; never shown to customers. */
+  readonly detail: string
+  constructor(detail: string) {
+    super(AI_PROVIDER_UNAVAILABLE_MESSAGE)
+    this.name = 'AIProviderUnavailableError'
+    this.detail = detail
+  }
+}
+
+/**
+ * Returns the provider's explanation when `err` is a refusal of our account
+ * rather than of this request, and null for anything else.
+ *
+ * Typed checks first, as the SDK intends. The one message check is for the
+ * credit balance: the API reports it as a plain 400 invalid_request_error, the
+ * same type as a malformed request, so the type alone cannot tell them apart.
+ * It is matched on the exact wording production returned. A 400 for reaching
+ * an organisation or workspace spend limit is documented without its wording,
+ * so until one is seen it falls through to the ordinary 400 handling.
+ *
+ * Deliberately absent: 429 and 5xx, which the queue already retries, and a 413
+ * or other 400, which are about the request.
+ */
+export function providerAccountFailure(err: unknown): string | null {
+  if (!(err instanceof Anthropic.APIError)) return null
+  if (
+    err instanceof Anthropic.AuthenticationError || // key rejected or revoked
+    err instanceof Anthropic.PermissionDeniedError || // key not allowed this resource
+    err instanceof Anthropic.NotFoundError || // model not available to the org
+    err.status === 402 ||
+    err.type === 'billing_error'
+  ) {
+    return err.message
+  }
+  if (err instanceof Anthropic.BadRequestError && /credit balance is too low/i.test(err.message)) {
+    return err.message
+  }
+  return null
+}
+
+type Usage = { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number }
+
+/**
+ * What a failed call leaves behind: the usage row to write, and the error to
+ * raise. Pure, so the metering rules are tested without a model or a database.
+ *
+ * A refusal of our account records zero tokens and zero cost, not just zero
+ * cost: the request never reached the model, and token counts are kept so that
+ * rows can be re-costed when prices change — a re-cost must not invent spend.
+ */
+export function failureOutcome(err: unknown, inputTokens: number): {
+  record: { usage: Usage; cost: number; error: string }
+  raise: unknown
+} {
+  const refusal = providerAccountFailure(err)
+  if (refusal !== null) {
+    return {
+      record: {
+        usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+        cost: 0,
+        error: `${PROVIDER_REFUSAL_MARK}${refusal}`,
+      },
+      raise: new AIProviderUnavailableError(refusal),
+    }
+  }
+
+  const message = err instanceof Error ? err.message : String(err)
+  // Any other failure is metered on its input, as before: a call that fails
+  // after the model has read the input is billed.
+  const record = {
+    usage: { inputTokens, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+    cost: computeCost(AI_MODEL, { inputTokens, outputTokens: 0 }),
+    error: message,
+  }
+  if (err instanceof Anthropic.BadRequestError) {
+    return { record, raise: new AIConfigError(`The model rejected this request: ${err.message}`) }
+  }
+  return { record, raise: err }
+}
+
 export type AITask = 'summarize' | 'draft_followup' | 'score_lead' | 'next_action'
 
 export const AI_TASKS: AITask[] = ['summarize', 'draft_followup', 'score_lead', 'next_action']
@@ -175,7 +284,10 @@ let client: Anthropic | null = null
 function getClient(): Anthropic {
   if (client) return client
   if (!process.env.ANTHROPIC_API_KEY) {
-    throw new AIConfigError(
+    // Ours to fix, not the customer's — see AIProviderUnavailableError. The
+    // instruction lives in the detail, which reaches the operator alert and
+    // never the customer's Activity page.
+    throw new AIProviderUnavailableError(
       'ANTHROPIC_API_KEY is not set — AI steps cannot run. Add it in the Vercel project settings.'
     )
   }
@@ -200,10 +312,26 @@ export type RunAIParams = {
  *
  * Spend is recorded whether or not the call succeeds. A call that fails after
  * the model has read the input is still billed by Anthropic, so omitting those
- * rows would under-report what the customer actually costs us.
+ * rows would under-report what the customer actually costs us. A refusal of
+ * our own account is recorded too, at zero — see failureOutcome — because the
+ * row is how the operator alert learns that every customer's AI is down.
  */
 export async function runAIStep(params: RunAIParams): Promise<AIResult> {
-  const anthropic = getClient()
+  let anthropic: Anthropic
+  try {
+    anthropic = getClient()
+  } catch (err) {
+    if (err instanceof AIProviderUnavailableError) {
+      await recordUsage({
+        ...params,
+        usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+        cost: 0,
+        succeeded: false,
+        error: `${PROVIDER_REFUSAL_MARK}${err.detail}`,
+      })
+    }
+    throw err
+  }
 
   const system = `${SYSTEM_PREAMBLE}\n\n${TASK_INSTRUCTIONS[params.task]}`
   const userContent = params.instructions
@@ -279,24 +407,12 @@ export async function runAIStep(params: RunAIParams): Promise<AIResult> {
   } catch (err) {
     if (err instanceof AIBudgetError || err instanceof AIConfigError) throw err
 
-    // Record the attempt even on failure, so spend isn't under-reported.
-    await recordUsage({
-      ...params,
-      usage: { inputTokens, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
-      cost: computeCost(AI_MODEL, { inputTokens, outputTokens: 0 }),
-      succeeded: false,
-      error: err instanceof Error ? err.message : String(err),
-    })
-
-    // Typed SDK errors, most-specific first, so the queue can tell a transient
-    // failure worth retrying from a permanent one that never will be.
-    if (err instanceof Anthropic.AuthenticationError) {
-      throw new AIConfigError('The Anthropic API key was rejected. Check ANTHROPIC_API_KEY.')
-    }
-    if (err instanceof Anthropic.BadRequestError) {
-      throw new AIConfigError(`The model rejected this request: ${err.message}`)
-    }
-    throw err
+    // Record the attempt even on failure, so spend isn't under-reported — and
+    // decide, in one place, whether this is the customer's problem (permanent),
+    // ours (AIProviderUnavailableError, retried), or transient (retried as is).
+    const outcome = failureOutcome(err, inputTokens)
+    await recordUsage({ ...params, ...outcome.record, succeeded: false })
+    throw outcome.raise
   }
 }
 

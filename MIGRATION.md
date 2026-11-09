@@ -169,16 +169,22 @@ See `lib/scheduling.md` for the full reasoning.
 ## What you need to do
 
 **Add `ANTHROPIC_API_KEY` to Vercel**, for Production, Preview and Development.
-Get one from console.anthropic.com. Until it is set, `ai_step` workflows fail
-with a clear configuration error and every other action is unaffected.
+Get one from console.anthropic.com.
 
-I could not test the live model calls from here — there was no Anthropic
-credential available in this environment. The code is written against the
-documented SDK and typechecks, and everything deterministic around it (cost
-arithmetic, budget enforcement, the month boundary) is unit-tested and verified
-against the database. **The first real call is still unproven.** Create one
-`ai_step` workflow, trigger it, and check Dashboard → Activity before relying
-on it.
+**Keep the Anthropic account funded.** If the key is missing or rejected, the
+account runs out of credit, billing fails, or the key lacks permission, every
+customer's AI steps are refused at once. That is treated as our problem, not
+theirs (`AIProviderUnavailableError` in `lib/ai.ts`): customers see that the
+fault is on our side and nothing is theirs to change — never the provider's
+text, which tells the reader to "go to Plans & Billing" — the affected steps
+retry on their normal schedule, nothing is charged to their AI budget, and the
+operator alert emails you on the first refusal with Anthropic's explanation.
+Every other action is unaffected. This happened for real: the credit ran out
+some time after 15 September 2026 and went unnoticed until a test run on
+9 November, because no AI step had fired in between.
+
+The first real call was proven on 15 September 2026 — a `draft_followup` on a
+genuinely stale deal, metered at $0.00925.
 
 ## What it costs
 

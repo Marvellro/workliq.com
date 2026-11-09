@@ -99,6 +99,8 @@ describe('signalsFromSnapshot', () => {
     webhookRejections24h: 0,
     accountsWithBrokenConnections: 0,
     deadJobs: 0,
+    aiProviderRefusals1h: 0,
+    latestAiProviderRefusal: null,
   }
 
   it('raises nothing when everything is clear', () => {
@@ -145,12 +147,40 @@ describe('signalsFromSnapshot', () => {
       webhookRejections24h: 5,
       accountsWithBrokenConnections: 2,
       deadJobs: 1,
+      aiProviderRefusals1h: 1,
+      latestAiProviderRefusal: 'Your credit balance is too low',
     })
     expect(signals.map((s) => s.key)).toEqual([
       'queue_stalled',
       'webhook_rejections',
       'connections_broken_widely',
+      'ai_provider_unavailable',
       'dead_jobs',
     ])
+  })
+
+  // Our Anthropic account refusing — out of credit, key rejected — breaks every
+  // customer's AI at once and none of them can fix it. The jobs only exhaust
+  // their retries ~1.7 hours later, so this cannot wait for the dead-jobs
+  // signal: it has to fire on the first refusal, including one found by a test
+  // run, which has no job at all.
+  it('raises a critical alert on the first refusal of our AI account', () => {
+    const [signal] = signalsFromSnapshot({
+      ...clear,
+      aiProviderRefusals1h: 1,
+      latestAiProviderRefusal: 'Your credit balance is too low to access the Anthropic API.',
+    })
+    expect(signal.key).toBe('ai_provider_unavailable')
+    expect(signal.severity).toBe('critical')
+    expect(signal.headline).toBe('1 AI call was refused by our Anthropic account in the last hour')
+    // The operator gets the provider's own words; that is what says what to fix.
+    expect(signal.detail).toContain('Your credit balance is too low')
+  })
+
+  it('counts refusals in the plural, and stays quiet when there are none', () => {
+    expect(signalsFromSnapshot({ ...clear, aiProviderRefusals1h: 4 })[0].headline).toBe(
+      '4 AI calls were refused by our Anthropic account in the last hour'
+    )
+    expect(signalsFromSnapshot(clear)).toEqual([])
   })
 })

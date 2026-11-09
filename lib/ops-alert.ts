@@ -1,5 +1,6 @@
 import { Resend } from 'resend'
 import { getSupabaseAdmin, appUrl } from './config'
+import { PROVIDER_REFUSAL_MARK } from './ai'
 
 // Operator alerting.
 //
@@ -93,6 +94,10 @@ export type OperatorSnapshot = {
   /** Distinct accounts holding at least one broken connection. */
   accountsWithBrokenConnections: number
   deadJobs: number
+  /** AI calls our Anthropic account refused in the last hour (lib/ai.ts). */
+  aiProviderRefusals1h: number
+  /** The provider's explanation for the most recent one, if any. */
+  latestAiProviderRefusal: string | null
 }
 
 /**
@@ -113,7 +118,9 @@ export async function readOperatorSnapshot(overdueJobs?: number): Promise<Operat
   const supabase = getSupabaseAdmin()
   const since = new Date(Date.now() - 24 * 3600_000).toISOString()
 
-  const [overdue, rejections, broken, dead] = await Promise.all([
+  const lastHour = new Date(Date.now() - 3600_000).toISOString()
+
+  const [overdue, rejections, broken, dead, refusals] = await Promise.all([
     overdueJobs !== undefined ? Promise.resolve(overdueJobs) : countOverdueJobs(),
     supabase
       .from('audit_log')
@@ -126,6 +133,16 @@ export async function readOperatorSnapshot(overdueJobs?: number): Promise<Operat
       )
     ),
     supabase.from('jobs').select('id', { count: 'exact', head: true }).eq('status', 'dead'),
+    // Newest first, so the first row carries the latest explanation and the
+    // exact count comes back with it in one round trip.
+    supabase
+      .from('ai_usage')
+      .select('error_message', { count: 'exact' })
+      .eq('succeeded', false)
+      .like('error_message', `${PROVIDER_REFUSAL_MARK}%`)
+      .gte('created_at', lastHour)
+      .order('created_at', { ascending: false })
+      .limit(1),
   ])
 
   const affected = new Set<string>()
@@ -138,6 +155,9 @@ export async function readOperatorSnapshot(overdueJobs?: number): Promise<Operat
     webhookRejections24h: rejections.count ?? 0,
     accountsWithBrokenConnections: affected.size,
     deadJobs: dead.count ?? 0,
+    aiProviderRefusals1h: refusals.count ?? 0,
+    latestAiProviderRefusal:
+      (refusals.data?.[0]?.error_message as string | undefined)?.slice(PROVIDER_REFUSAL_MARK.length) ?? null,
   }
 }
 
@@ -192,6 +212,28 @@ export function signalsFromSnapshot(snapshot: OperatorSnapshot): OperatorSignal[
       headline: `${snapshot.accountsWithBrokenConnections} accounts have a broken connection`,
       detail:
         'More than one account losing a credential at the same time usually means something at this end — a rotated client secret, a changed redirect URI, an app uninstalled from a shared install. Worth checking before asking customers to reconnect.',
+    })
+  }
+
+  // ── Our AI provider account refusing ───────────────────────────────────────
+  // Out of credit, billing failed, key missing or rejected. Every customer's AI
+  // steps fail together, none of them can fix it, and the jobs only exhaust
+  // their retries an hour and a half later — so waiting for the dead-jobs
+  // signal below would tell us long after the fact. This fires on the first
+  // refusal, which also catches one found by a test run, where there is no job.
+  if (snapshot.aiProviderRefusals1h > 0) {
+    const n = snapshot.aiProviderRefusals1h
+    signals.push({
+      key: 'ai_provider_unavailable',
+      severity: 'critical',
+      headline:
+        n === 1
+          ? '1 AI call was refused by our Anthropic account in the last hour'
+          : `${n} AI calls were refused by our Anthropic account in the last hour`,
+      detail:
+        `Every customer's AI steps are failing until this is fixed: it is the account — credit, billing, the API key or its permissions — not anything a customer did. ` +
+        `Affected steps retry on their normal schedule, so fixing it within about an hour and a half loses nothing. ` +
+        `Anthropic's explanation: ${snapshot.latestAiProviderRefusal ?? 'not recorded'}`,
     })
   }
 

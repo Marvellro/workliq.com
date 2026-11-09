@@ -21,6 +21,7 @@ import {
   renderResult,
   AIBudgetError,
   AIConfigError,
+  AIProviderUnavailableError,
   AI_TASK_LABELS,
   type AITask,
   type DealFacts,
@@ -452,6 +453,13 @@ async function runAIStepAction(step: WorkflowStep, ctx: StepContext): Promise<st
     })
     text = renderResult(result)
   } catch (err) {
+    // Our Anthropic account refused — credit, billing, key, permission. Not
+    // the customer's doing, and not permanent: it clears the moment we fix it,
+    // so the job retries on its normal schedule and the customer's alert
+    // arrives late rather than never. Checked first, and kept separate from
+    // the permanent set below on purpose.
+    if (err instanceof AIProviderUnavailableError) throw err
+
     // Budget and configuration failures are permanent: retrying an exhausted
     // budget four more times just burns attempts, and each retry would re-run
     // the token count.
