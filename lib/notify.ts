@@ -2,7 +2,7 @@ import { Resend } from 'resend'
 import { getSupabaseAdmin, appUrl } from './config'
 import { providerLabel, type ConnectionProvider } from './connection-health'
 import { getEntitlements } from './plans'
-import { sendEmail } from './email'
+import { sendEmail, escapeHtml } from './email'
 
 // The digest: the one place Workliq tells a customer something has gone wrong
 // without being asked.
@@ -495,19 +495,4 @@ function renderHtml(d: CustomerDigest): string {
   )
 
   return parts.join('')
-}
-
-/**
- * Everything interpolated into the HTML is either our own copy or a value that
- * originated in a provider's error response, so it is escaped rather than
- * trusted. Mail clients render HTML, and an unescaped `<` from an API body
- * would at best break the layout.
- */
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
 }

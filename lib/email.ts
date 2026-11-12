@@ -22,6 +22,26 @@ import type { Resend, CreateEmailOptions } from 'resend'
 // Every send goes through here, which throws unless Resend accepted the email,
 // so the try/catch each caller already had finally means what it says.
 
+/**
+ * Escapes a value for interpolation into an email's HTML.
+ *
+ * Anything that did not originate in our own copy goes through this: a
+ * provider's error text, a workflow name, and above all anything a stranger
+ * typed. The waitlist put the submitter's name into its HTML unescaped, and it
+ * sends to whatever address the submitter supplies — so anyone could make
+ * hello@workliq.com send a signed, Workliq-branded email carrying their own
+ * markup and links to anyone. One copy, shared by every email builder, so the
+ * rule cannot be fixed in one place and missed in another.
+ */
+export function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
 export class EmailNotSentError extends Error {
   /** Resend's error name, e.g. "validation_error" or "rate_limit_exceeded". */
   readonly code: string | null

@@ -1,7 +1,7 @@
 import { Resend } from 'resend'
 import { getSupabaseAdmin, appUrl } from './config'
 import { PROVIDER_REFUSAL_MARK } from './ai'
-import { sendEmail } from './email'
+import { sendEmail, escapeHtml } from './email'
 
 // Operator alerting.
 //
@@ -380,13 +380,4 @@ export function buildOperatorEmail(signals: OperatorSignal[]): {
   ].join('')
 
   return { subject, html, text }
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
 }
