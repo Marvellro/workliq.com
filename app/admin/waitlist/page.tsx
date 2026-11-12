@@ -80,7 +80,7 @@ export default function AdminWaitlistPage() {
   }
 
   async function rejectUser(entry: WaitlistEntry) {
-    if (!confirm(`Reject ${entry.name}?`)) return
+    if (!confirm(`Reject ${entry.name || entry.email}?`)) return
     setBusy(entry.id)
     const res = await fetch('/api/admin/waitlist', {
       method: 'PATCH',
@@ -88,18 +88,18 @@ export default function AdminWaitlistPage() {
       body: JSON.stringify({ id: entry.id, status: 'rejected' }),
     })
     if (!res.ok) showToast((await res.json()).error ?? 'Failed', false)
-    else { showToast(`${entry.name} rejected`); await fetchEntries() }
+    else { showToast(`${entry.name || entry.email} rejected`); await fetchEntries() }
     setBusy(null)
   }
 
   async function removeUser(entry: WaitlistEntry) {
-    if (!confirm(`Permanently delete ${entry.name}?`)) return
+    if (!confirm(`Permanently delete ${entry.name || entry.email}?`)) return
     setBusy(entry.id)
     const res = await fetch(`/api/admin/waitlist?id=${encodeURIComponent(entry.id)}`, {
       method: 'DELETE',
     })
     if (!res.ok) showToast((await res.json()).error ?? 'Failed', false)
-    else { showToast(`${entry.name} removed`); await fetchEntries() }
+    else { showToast(`${entry.name || entry.email} removed`); await fetchEntries() }
     setBusy(null)
   }
 
@@ -191,7 +191,7 @@ export default function AdminWaitlistPage() {
               <tbody className="divide-y divide-gray-50">
                 {filtered.map(entry => (
                   <tr key={entry.id} className="hover:bg-gray-50">
-                    <td className="px-5 py-3.5 font-medium text-gray-900">{entry.name}</td>
+                    <td className="px-5 py-3.5 font-medium text-gray-900">{entry.name || <span className="text-gray-400 font-normal">No name given</span>}</td>
                     <td className="px-5 py-3.5 text-gray-600">{entry.email}</td>
                     <td className="px-5 py-3.5 text-gray-600">{entry.role || '—'}</td>
                     <td className="px-5 py-3.5">

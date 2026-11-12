@@ -86,6 +86,7 @@ export default function Home() {
   const [ctaEmail, setCtaEmail] = useState("");
   const [ctaSubmitted, setCtaSubmitted] = useState(false);
   const [ctaLoading, setCtaLoading] = useState(false);
+  const [ctaError, setCtaError] = useState("");
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -112,19 +113,29 @@ export default function Home() {
     }
   }
 
+  // This form used to show "you're on the list" whatever happened — including
+  // when the API rejected it, which it did for every submission, because the
+  // API required a name this form never asks for. Success is shown only when
+  // the API says so; anything else is said to the visitor.
   async function handleCtaSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!ctaEmail) return;
     setCtaLoading(true);
+    setCtaError("");
     try {
-      await fetch("/api/waitlist", {
+      const res = await fetch("/api/waitlist", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: "", email: ctaEmail, role: "" }),
+        body: JSON.stringify({ email: ctaEmail }),
       });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setCtaError(data.error || "Something went wrong. Please try again.");
+        return;
+      }
       setCtaSubmitted(true);
     } catch {
-      setCtaSubmitted(true);
+      setCtaError("Network error — please check your connection and try again.");
     } finally {
       setCtaLoading(false);
     }
@@ -430,6 +441,11 @@ export default function Home() {
             >
               {ctaLoading ? "Joining…" : "Get early access →"}
             </button>
+            {ctaError && (
+              <p role="alert" style={{ flexBasis: "100%", margin: "4px 0 0", fontSize: 12, color: "#F87171", textAlign: "center" }}>
+                {ctaError}
+              </p>
+            )}
           </form>
         ) : (
           <div style={{ fontSize: 14, color: "#6366F1", fontWeight: 500 }}>
