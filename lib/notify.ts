@@ -2,6 +2,7 @@ import { Resend } from 'resend'
 import { getSupabaseAdmin, appUrl } from './config'
 import { providerLabel, type ConnectionProvider } from './connection-health'
 import { getEntitlements } from './plans'
+import { sendEmail } from './email'
 
 // The digest: the one place Workliq tells a customer something has gone wrong
 // without being asked.
@@ -246,7 +247,10 @@ export async function runNotificationSweep(): Promise<SweepResult> {
 
     try {
       const { subject, html, text } = buildDigestEmail(digest)
-      await resend.emails.send({ from: FROM, to: digest.email, subject, html, text })
+      // sendEmail, not resend.emails.send: the SDK resolves even when it
+      // refuses the email, and before this the stamps below were written for
+      // digests that never left — so those customers were never told.
+      await sendEmail(resend, { from: FROM, to: digest.email, subject, html, text })
     } catch (err) {
       // Left unstamped on purpose: the next sweep retries it.
       console.error(`[notify] digest to ${digest.customerId} failed:`, err)

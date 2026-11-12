@@ -3,6 +3,7 @@ import { Resend } from "resend";
 import { getSupabaseAdmin, appUrl } from "@/lib/config";
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from "@/lib/rate-limit";
 import { clientIp } from "@/lib/audit";
+import { sendEmail } from "@/lib/email";
 
 function getResend() {
   return new Resend(process.env.RESEND_API_KEY);
@@ -49,12 +50,24 @@ export async function POST(req: Request) {
 
     const confirmUrl = appUrl(`/api/confirm?token=${token}`);
 
-    await getResend().emails.send({
-      from: "Marvellous at Workliq <hello@workliq.com>",
-      to: email,
-      subject: "Confirm your spot on the Workliq waitlist",
-      html: `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="margin:0;padding:0;background:#f9fafb;font-family:system-ui,sans-serif;"><div style="max-width:560px;margin:40px auto;background:#fff;border-radius:12px;border:1px solid #e5e7eb;"><div style="background:#0D0F1A;padding:24px 32px;border-radius:12px 12px 0 0;"><span style="color:#F0F2EE;font-size:16px;font-weight:500;">W Workliq</span></div><div style="padding:32px;"><h1 style="font-size:22px;font-weight:500;color:#0D0F1A;margin:0 0 12px;">Hi ${name}, confirm your spot 👋</h1><p style="font-size:15px;color:#374151;line-height:1.7;margin:0 0 24px;">Thanks for joining the Workliq waitlist. Click the button below to confirm your email and lock in your spot.</p><a href="${confirmUrl}" style="display:inline-block;background:#1A56DB;color:#fff;font-size:14px;font-weight:500;padding:12px 28px;border-radius:8px;text-decoration:none;">Confirm my spot →</a><p style="font-size:13px;color:#9CA3AF;margin-top:20px;">Or copy this link: <span style="color:#1A56DB;">${confirmUrl}</span></p></div><div style="padding:16px 32px;border-top:1px solid #E5E7EB;"><p style="font-size:12px;color:#9CA3AF;margin:0;">© 2026 Workliq Inc. · Stockholm, Sweden</p></div></div></body></html>`,
-    });
+    // sendEmail throws when Resend refuses the email; the SDK on its own does
+    // not, and this route used to answer success while the person waited for a
+    // confirmation that was never sent. They can retry: the upsert re-issues
+    // the token for the same address.
+    try {
+      await sendEmail(getResend(), {
+        from: "Marvellous at Workliq <hello@workliq.com>",
+        to: email,
+        subject: "Confirm your spot on the Workliq waitlist",
+        html: `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="margin:0;padding:0;background:#f9fafb;font-family:system-ui,sans-serif;"><div style="max-width:560px;margin:40px auto;background:#fff;border-radius:12px;border:1px solid #e5e7eb;"><div style="background:#0D0F1A;padding:24px 32px;border-radius:12px 12px 0 0;"><span style="color:#F0F2EE;font-size:16px;font-weight:500;">W Workliq</span></div><div style="padding:32px;"><h1 style="font-size:22px;font-weight:500;color:#0D0F1A;margin:0 0 12px;">Hi ${name}, confirm your spot 👋</h1><p style="font-size:15px;color:#374151;line-height:1.7;margin:0 0 24px;">Thanks for joining the Workliq waitlist. Click the button below to confirm your email and lock in your spot.</p><a href="${confirmUrl}" style="display:inline-block;background:#1A56DB;color:#fff;font-size:14px;font-weight:500;padding:12px 28px;border-radius:8px;text-decoration:none;">Confirm my spot →</a><p style="font-size:13px;color:#9CA3AF;margin-top:20px;">Or copy this link: <span style="color:#1A56DB;">${confirmUrl}</span></p></div><div style="padding:16px 32px;border-top:1px solid #E5E7EB;"><p style="font-size:12px;color:#9CA3AF;margin:0;">© 2026 Workliq Inc. · Stockholm, Sweden</p></div></div></body></html>`,
+      });
+    } catch (err) {
+      console.error("Waitlist confirmation email was not sent:", err);
+      return NextResponse.json(
+        { error: "We saved your spot but couldn't send the confirmation email. Please try again in a few minutes." },
+        { status: 502 }
+      );
+    }
 
     return NextResponse.json({ success: true });
   } catch (err) {

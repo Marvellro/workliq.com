@@ -1,6 +1,7 @@
 import { Resend } from 'resend'
 import { getSupabaseAdmin, appUrl } from './config'
 import { PROVIDER_REFUSAL_MARK } from './ai'
+import { sendEmail } from './email'
 
 // Operator alerting.
 //
@@ -59,6 +60,12 @@ export type OpsAlertResult = {
   found: number
   sent: number
   suppressed: number
+  /**
+   * Signals whose email Resend refused. They are left unrecorded, so the next
+   * run tries again — and the count is reported, because an alert that could
+   * not be delivered is itself something the operator needs to see.
+   */
+  failed: number
 }
 
 // ── Collection ───────────────────────────────────────────────────────────────
@@ -267,7 +274,7 @@ export async function collectOperatorSignals(overdueJobs?: number): Promise<Oper
  * monitoring causing the outage.
  */
 export async function runOperatorAlert(overdueJobs?: number): Promise<OpsAlertResult> {
-  const result: OpsAlertResult = { configured: false, found: 0, sent: 0, suppressed: 0 }
+  const result: OpsAlertResult = { configured: false, found: 0, sent: 0, suppressed: 0, failed: 0 }
 
   const to = process.env.OPS_ALERT_EMAIL
   if (!to || !process.env.RESEND_API_KEY) {
@@ -302,7 +309,17 @@ export async function runOperatorAlert(overdueJobs?: number): Promise<OpsAlertRe
 
     const { subject, html, text } = buildOperatorEmail(fresh)
 
-    await new Resend(process.env.RESEND_API_KEY).emails.send({ from: FROM, to, subject, html, text })
+    try {
+      await sendEmail(new Resend(process.env.RESEND_API_KEY), { from: FROM, to, subject, html, text })
+    } catch (err) {
+      // Refused by Resend. The comment below used to make this promise while
+      // the code recorded the alert regardless — the SDK resolves even when it
+      // refuses — so a refused alert was marked sent and then suppressed for a
+      // day. Now nothing is recorded, and the next run tries again.
+      result.failed = fresh.length
+      console.error('[ops-alert] alert email was not accepted:', err instanceof Error ? err.message : err)
+      return result
+    }
 
     // Recorded only after the send is accepted, so a mail failure means the
     // condition is reported on the next sweep rather than swallowed.
