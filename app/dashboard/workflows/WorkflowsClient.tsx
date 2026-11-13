@@ -113,16 +113,29 @@ export default function WorkflowsClient({ initialWorkflows, slackConnected, noti
   // One test panel open at a time: each one loads deals from HubSpot.
   const [testingId, setTestingId] = useState<string | null>(null)
 
+  // Why the last attempt to switch a workflow on or off was refused. The
+  // toggle used to drop every refusal on the floor — a plan limit, and now a
+  // missing connection — so the click simply did nothing.
+  const [toggleError, setToggleError] = useState<{ id: string; message: string } | null>(null)
+
   async function handleToggle(id: string, enabled: boolean) {
     setBusyId(id)
-    const res = await fetch(`/api/workflows/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ enabled }),
-    })
-    if (res.ok) {
-      const { workflow } = await res.json()
-      setWorkflows((prev) => prev.map((w) => (w.id === id ? workflow : w)))
+    setToggleError(null)
+    try {
+      const res = await fetch(`/api/workflows/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      })
+      if (res.ok) {
+        const { workflow } = await res.json()
+        setWorkflows((prev) => prev.map((w) => (w.id === id ? workflow : w)))
+      } else {
+        const data = await res.json().catch(() => null)
+        setToggleError({ id, message: data?.error ?? 'That did not work. Please try again.' })
+      }
+    } catch {
+      setToggleError({ id, message: 'Could not reach Workliq. Please try again.' })
     }
     setBusyId(null)
   }
@@ -219,6 +232,11 @@ export default function WorkflowsClient({ initialWorkflows, slackConnected, noti
                   <div style={{ fontSize: 12, color: '#92400E', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 6, padding: '0.3rem 0.55rem', marginTop: 6, display: 'inline-block' }}>
                     Paused by your plan — your plan allows fewer active workflows than you had running.
                     Nothing was deleted; turning it back on may need an upgrade.
+                  </div>
+                )}
+                {toggleError?.id === w.id && (
+                  <div role="alert" style={{ fontSize: 12, color: '#991B1B', background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 6, padding: '0.3rem 0.55rem', marginTop: 6 }}>
+                    {toggleError.message}
                   </div>
                 )}
               </div>

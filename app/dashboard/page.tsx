@@ -2,6 +2,9 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@supabase/supabase-js'
 import { getCustomerSession } from '@/lib/session'
 import DashboardClient from './DashboardClient'
+import { providersUsedBy } from '@/lib/connections'
+import { stepsFor } from '@/lib/workflow-steps'
+import type { WorkflowRow } from '@/lib/workflow-engine'
 
 function getSupabaseAdmin() {
   return createClient(
@@ -22,7 +25,7 @@ export default async function DashboardPage({
   const supabase = getSupabaseAdmin()
 
   // Fetch all three connection statuses in parallel
-  const [{ data: hubspotConn }, { data: slackConn }, { data: notionConn }] =
+  const [{ data: hubspotConn }, { data: slackConn }, { data: notionConn }, { data: enabledWorkflows }] =
     await Promise.all([
       supabase
         .from('hubspot_connections')
@@ -39,7 +42,20 @@ export default async function DashboardPage({
         .select('workspace_name, status, last_error')
         .eq('customer_id', session.customerId)
         .maybeSingle(),
+      supabase
+        .from('workflows')
+        .select('steps, action_type, action_config')
+        .eq('customer_id', session.customerId)
+        .eq('enabled', true),
     ])
+
+  // How many running workflows each Disconnect would pause, so the
+  // confirmation can say so before anything happens. The same rule decides
+  // which ones are actually paused (lib/connections.ts).
+  const pausesOnDisconnect = { hubspot: 0, slack: 0, notion: 0 }
+  for (const w of enabledWorkflows ?? []) {
+    for (const p of providersUsedBy(stepsFor(w as unknown as WorkflowRow))) pausesOnDisconnect[p]++
+  }
 
   // A connection row that exists but is flagged is the state the dashboard
   // previously could not show at all: it rendered "Connected" in green while
@@ -97,6 +113,7 @@ export default async function DashboardPage({
           : null
       }
       flash={flash}
+      pausesOnDisconnect={pausesOnDisconnect}
     />
   )
 }

@@ -5,6 +5,9 @@ import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit
 import { recordAudit, clientIp, userAgent } from '@/lib/audit'
 import { getEntitlements, checkWorkflowLimit } from '@/lib/plans'
 import { validateWorkflowInput, stepsFromBody } from '@/lib/workflow-validation'
+import { connectionProblem } from '@/lib/connections'
+import { stepsFor, type WorkflowStep } from '@/lib/workflow-steps'
+import type { WorkflowRow } from '@/lib/workflow-engine'
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getCustomerSession()
@@ -102,6 +105,35 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   }
 
   const supabase = getSupabaseAdmin()
+
+  // Everything a workflow sends through has to be connected before it can be
+  // switched on or saved. Disconnect pauses the workflows that need what it
+  // removes; without this, the next click turned one back on, and it failed on
+  // every deal until someone noticed.
+  let stepsToCheck: WorkflowStep[] | null = isToggle ? null : (update.steps as WorkflowStep[])
+  if (isToggle && body.enabled === true) {
+    const { data: current, error: readError } = await supabase
+      .from('workflows')
+      .select('steps, action_type, action_config')
+      .eq('id', id)
+      .eq('customer_id', session.customerId)
+      .maybeSingle()
+    if (readError) {
+      return NextResponse.json({ error: 'Could not load the workflow. Please try again.' }, { status: 500 })
+    }
+    if (!current) return NextResponse.json({ error: 'Workflow not found' }, { status: 404 })
+    stepsToCheck = stepsFor(current as unknown as WorkflowRow)
+  }
+  if (stepsToCheck) {
+    let missing: string | null
+    try {
+      missing = await connectionProblem(session.customerId, stepsToCheck)
+    } catch (err) {
+      console.error('[api/workflows] connection check failed:', err)
+      return NextResponse.json({ error: 'Could not check your connections. Please try again.' }, { status: 500 })
+    }
+    if (missing) return NextResponse.json({ error: missing }, { status: 409 })
+  }
 
   // Scope the update to this customer's own row — the service role key would
   // otherwise happily update any workflow regardless of owner.

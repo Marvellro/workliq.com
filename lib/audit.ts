@@ -13,6 +13,8 @@ export type AuditAction =
   | 'customer.login_failed'
   | 'connection.created'
   | 'connection.failed'
+  | 'connection.disconnected'
+  | 'connection.disconnect_failed'
   | 'workflow.created'
   | 'workflow.enabled'
   | 'workflow.disabled'

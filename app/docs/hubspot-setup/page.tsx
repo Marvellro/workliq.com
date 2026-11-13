@@ -57,7 +57,11 @@ Because deal data is synced on a schedule rather than instantly, there may be a 
     {
       title: "5. Disconnect the App",
       blocks: [
-        { type: "text", text: `Workliq does not currently have a separate "disconnect" button inside its own dashboard — the HubSpot connection is managed entirely from HubSpot's side. To remove Workliq's access to your HubSpot account, uninstall it directly from HubSpot:
+        { type: "text", text: `You can disconnect from either side.
+
+From Workliq: on the Connections page, click Disconnect on the HubSpot card and confirm. Workliq removes its app from your HubSpot account, deletes the access it holds, and deletes the HubSpot deal changes and stages it stored. HubSpot emails your account's super admins that the app was removed. Your workflows are paused, because each one starts from a HubSpot deal.
+
+From HubSpot:
 
 • In HubSpot, go to Settings → Integrations → Connected Apps
 • Find Workliq in your list of installed apps
@@ -65,7 +69,9 @@ Because deal data is synced on a schedule rather than instantly, there may be a 
         { type: "image", src: "/images/hubspot-setup/uninstall-confirm.png", alt: "HubSpot 'Uninstall Workliq?' confirmation dialog" },
         { type: "text", text: `• Type "uninstall" in the confirmation field, then click Uninstall to confirm
 
-This immediately revokes Workliq's access token. No data is deleted from your HubSpot account. In Workliq, any workflows relying on HubSpot data will stop running until you reconnect — no historical workflow run data in Workliq is affected.
+Uninstalling from HubSpot immediately revokes Workliq's access. Workliq notices the next time it uses the connection and asks you to reconnect; to also delete what Workliq holds, click Disconnect in Workliq as well.
+
+Either way, no data is deleted from your HubSpot account, and your workflow run history in Workliq is kept.
 
 To reconnect, repeat the install steps above from your Workliq dashboard.` },
       ]

@@ -5,6 +5,7 @@ import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit
 import { recordAudit, clientIp, userAgent } from '@/lib/audit'
 import { getEntitlements, checkWorkflowLimit } from '@/lib/plans'
 import { validateWorkflowInput, stepsFromBody } from '@/lib/workflow-validation'
+import { connectionProblem } from '@/lib/connections'
 
 export async function GET() {
   const session = await getCustomerSession()
@@ -67,6 +68,17 @@ export async function POST(req: Request) {
       { status: 402 }
     )
   }
+
+  // A workflow is created switched on, so everything it sends through has to
+  // be connected. The builder checks this too, but only in the browser.
+  let missing: string | null
+  try {
+    missing = await connectionProblem(session.customerId, steps)
+  } catch (err) {
+    console.error('[api/workflows] connection check failed:', err)
+    return NextResponse.json({ error: 'Could not check your connections. Please try again.' }, { status: 500 })
+  }
+  if (missing) return NextResponse.json({ error: missing }, { status: 409 })
 
   const supabase = getSupabaseAdmin()
   const { data, error } = await supabase

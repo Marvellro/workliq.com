@@ -152,7 +152,7 @@ On request
 
 You may ask us to delete your personal data at any time, and we will do so within 30 days. Billing records are the exception: we keep those for 7 years to meet financial reporting obligations.
 
-Disconnecting an integration removes the stored access token for it.`
+Disconnecting an integration deletes the credentials we hold for it and asks the provider to revoke our access. Disconnecting HubSpot also deletes the HubSpot events we received and the deal stages we stored. Your workflows and their run history are kept until you delete them or your account.`
     },
     {
       title: "8. Cookies",

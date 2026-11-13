@@ -38,6 +38,9 @@ export const RATE_LIMITS = {
   // Listing deals spends the customer's own HubSpot API quota.
   dealLookup: { windowSeconds: 60, max: 20 },
   oauthStart: { windowSeconds: 300, max: 20 },
+  // Each disconnect makes up to five calls to a provider on our behalf. Ten in
+  // ten minutes is a person disconnecting and reconnecting everything twice.
+  disconnect: { windowSeconds: 600, max: 10 },
 } as const satisfies Record<string, RateLimitRule>
 
 export type RateLimitResult = {

@@ -20,7 +20,7 @@ For urgent issues affecting a live workflow, mention "urgent" in your subject li
         },
         {
           title: "2.2 How do I disconnect an integration?",
-          content: "Go to Settings → Integrations, find the integration, and click Disconnect. This revokes access immediately and pauses any workflows using it."
+          content: "On the Connections page (the first page after you sign in), click Disconnect on the integration's card and confirm. Workliq deletes the access it holds, asks the provider to revoke it, and pauses any workflows that use it."
         },
         {
           title: "2.3 Why did my workflow stop running?",

@@ -116,7 +116,26 @@ export async function POST(req: Request) {
   const portalToCustomer = new Map<string, string>()
   for (const c of connections ?? []) portalToCustomer.set(c.hub_id, c.customer_id)
 
-  const rows = events.map((e) => ({
+  // Events from a portal no account is connected to are not stored.
+  //
+  // They used to be, raw payload and all, with no customer and no expiry —
+  // and nothing ever read them. That was harmless only while it never
+  // happened. Disconnect makes it routine: a customer who disconnects while
+  // HubSpot keeps delivering (an uninstall that did not go through, or one
+  // made from HubSpot's side a moment later) would otherwise have their deal
+  // changes kept indefinitely by the product they had just cut off.
+  //
+  // Counted, so "HubSpot is calling us about a portal we don't know" stays
+  // visible in the logs. The portal ids are not logged.
+  const known = events.filter((e) => portalToCustomer.has(String(e.portalId)))
+  if (known.length < events.length) {
+    console.log(`[webhooks/hubspot] ${events.length - known.length} event(s) for unconnected portals dropped`)
+  }
+  if (known.length === 0) {
+    return NextResponse.json({ ok: true, received: events.length, queued: 0 })
+  }
+
+  const rows = known.map((e) => ({
     customer_id: portalToCustomer.get(String(e.portalId)) ?? null,
     portal_id: String(e.portalId),
     // eventId is documented as not guaranteed unique, so it is part of a

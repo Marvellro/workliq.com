@@ -40,9 +40,9 @@ You can build a workflow visually from the Workflows tab.`
     },
     {
       title: "4. Managing Integrations",
-      content: `You can view and manage connected integrations at any time from Settings → Integrations.
+      content: `You can view and manage connected integrations at any time on the Connections page, the first page you see after signing in.
 
-To disconnect an integration, click Disconnect next to its name. This immediately revokes Workliq's access token and stops any workflows relying on that integration.`
+To disconnect an integration, click Disconnect on its card and confirm. Workliq deletes the access it holds, asks the provider to revoke it, and pauses any workflows that use that integration — the confirmation tells you how many before anything happens. If the provider does not confirm the revocation, Workliq tells you where to remove the app on the provider's side.`
     },
     {
       title: "5. Troubleshooting",
