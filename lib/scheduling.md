@@ -17,6 +17,18 @@ authenticating with `CRON_SECRET` read from Supabase Vault at run time. Coupling
 the pinger to Postgres is deliberate — when the database is down there is
 nothing to drain, so it fails exactly when draining was impossible anyway.
 
+Only the drain runs every minute. The sweeps that ride along with it —
+entitlement enforcement, the customer digest, the operator alert — run once per
+15 minutes per server instance (`lib/worker-cadence.ts`), and always on an
+instance's first call. Running them every minute cost about 16 database calls a
+minute, ~23,000 small requests a day, each paying ~4 KB of handshake and headers
+to answer "nothing". On 16 Nov 2026 that exhausted the Free plan's 5 GB egress
+quota: Supabase restricted the project, every database call failed with
+`exceed_egress_quota`, and the worker answered 503 until the quota was restored.
+The grace period is already spent, so the next overrun restricts immediately.
+Anything added to the per-minute path is a per-minute bill; put it in the sweep
+unless it truly needs minute resolution.
+
 A GitHub Actions workflow (`.github/workflows/worker.yml`) was tried first and
 is kept as a free secondary, not relied on. Its schedule is best-effort and,
 measured here, its first scheduled run arrived nine hours late. The Vercel daily

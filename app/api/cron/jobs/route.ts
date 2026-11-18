@@ -5,6 +5,7 @@ import { runNotificationSweep } from '@/lib/notify'
 import { runOperatorAlert, countOverdueJobs } from '@/lib/ops-alert'
 import { enforceAllEntitlements } from '@/lib/entitlement-enforcement'
 import { sendHeartbeat } from '@/lib/heartbeat'
+import { sweepIsDue } from '@/lib/worker-cadence'
 
 // The queue worker.
 //
@@ -26,6 +27,10 @@ export const maxDuration = 60
 
 const CRON_SECRET = process.env.CRON_SECRET
 
+// When this instance last completed the sweeps. In memory on purpose — see
+// lib/worker-cadence.ts: a fresh instance always sweeps on its first call.
+let lastSweepAt: number | null = null
+
 export async function GET(req: Request) {
   const authHeader = req.headers.get('authorization')
   if (!CRON_SECRET || authHeader !== `Bearer ${CRON_SECRET}`) {
@@ -36,10 +41,16 @@ export async function GET(req: Request) {
 
   const startedAt = Date.now()
 
+  // The drain runs on every call; the sweeps below only once per interval.
+  // Running all of them every minute is what exhausted the Supabase egress
+  // quota — see lib/worker-cadence.ts.
+  const sweep = sweepIsDue(lastSweepAt, startedAt)
+
   // Before the drain, deliberately: a count taken afterwards would have had
   // the claimable jobs removed from it, and could never show a queue that
-  // earlier runs failed to clear.
-  const overdueJobs = await countOverdueJobs()
+  // earlier runs failed to clear. Only the operator alert reads it, so it is
+  // only taken when that will run.
+  const overdueJobs = sweep ? await countOverdueJobs() : undefined
   const result = await runJobs({
     // Leave headroom under maxDuration so the loop stops claiming and returns
     // rather than being killed. A killed worker's jobs wait out a 5-minute
@@ -48,29 +59,45 @@ export async function GET(req: Request) {
     batchSize: 20,
   })
 
-  // Housekeeping is itself a job, so it retries like anything else and never
-  // competes with delivery for this request's time budget.
-  if (new Date().getUTCHours() === 4) {
-    await enqueue({
-      kind: 'maintenance.purge',
-      // One purge per day: the key collapses repeat enqueues within the hour.
-      idempotencyKey: `maintenance.purge:${new Date().toISOString().slice(0, 10)}`,
-    }).catch(() => {})
+  let enforced: Awaited<ReturnType<typeof enforceAllEntitlements>> | null = null
+  let notified: Awaited<ReturnType<typeof runNotificationSweep>> | null = null
+  let ops: Awaited<ReturnType<typeof runOperatorAlert>> | null = null
+
+  if (sweep) {
+    // Housekeeping is itself a job, so it retries like anything else and never
+    // competes with delivery for this request's time budget. With the pinger
+    // calling every minute, sweeps come at most fifteen minutes apart, so at
+    // least one lands inside hour 4; without it, the daily Vercel cron runs in
+    // hour 4 and nearly always sweeps. A day the purge misses is harmless — it
+    // only deletes old rows, and the next day's purge catches them.
+    if (new Date().getUTCHours() === 4) {
+      await enqueue({
+        kind: 'maintenance.purge',
+        // One purge per day: the key collapses repeat enqueues within the hour.
+        idempotencyKey: `maintenance.purge:${new Date().toISOString().slice(0, 10)}`,
+      }).catch(() => {})
+    }
+
+    // A subscription can lapse by the clock rather than by webhook — a comp
+    // with an end date, or a customer.subscription.deleted that never arrived.
+    // Nothing would notice, so the enforcement runs here too and not only on
+    // the webhook.
+    enforced = await enforceAllEntitlements()
+
+    // The digest is deliberately downstream of both: a connection that just
+    // died, or a workflow just paused, gets reported in this sweep rather than
+    // waiting a further day for the next one.
+    notified = await runNotificationSweep()
+
+    // And the half of that nobody was getting: conditions a customer cannot
+    // fix, reported to whoever runs this.
+    ops = await runOperatorAlert(overdueJobs)
+
+    // Only once all of them have finished: if one throws, the request fails
+    // and the next call tries the sweeps again instead of waiting out an
+    // interval in which they never ran.
+    lastSweepAt = startedAt
   }
-
-  // A subscription can lapse by the clock rather than by webhook — a comp with
-  // an end date, or a customer.subscription.deleted that never arrived. Nothing
-  // would notice, so the enforcement runs here too and not only on the webhook.
-  const enforced = await enforceAllEntitlements()
-
-  // The digest is deliberately downstream of both: a connection that just died,
-  // or a workflow just paused, gets reported in this run rather than waiting a
-  // further day for the next one.
-  const notified = await runNotificationSweep()
-
-  // And the half of that nobody was getting: conditions a customer cannot
-  // fix, reported to whoever runs this.
-  const ops = await runOperatorAlert(overdueJobs)
 
   // Healthy means the queue could be read — not merely that the handler got
   // this far. An unreachable database used to come back as claimed: 0 and a
@@ -89,7 +116,7 @@ export async function GET(req: Request) {
   }
 
   return NextResponse.json(
-    { ok: healthy, ...result, enforced, notified, ops, heartbeat, durationMs: ms },
+    { ok: healthy, ...result, swept: sweep, enforced, notified, ops, heartbeat, durationMs: ms },
     // A run that could not reach the queue is a failure, and every caller
     // should see one: pg_net records the status, and the GitHub workflow fails
     // loudly on anything but 200.
