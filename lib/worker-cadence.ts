@@ -7,12 +7,16 @@
 // handful of small reads that almost always come back empty.
 //
 // Every one of those calls is metered. Supabase counts egress per request, and
-// a request that answers "nothing" still pays for its TLS handshake (~2.8 KB)
-// and response headers (~1 KB). At sixteen calls a minute that was roughly
-// 23,000 requests a day of an idle worker asking whether anything had changed,
-// and on 16 Nov 2026 it ran the Free plan's 5 GB egress quota out: Supabase
-// restricted the project and every database call — sign-in, webhooks, the queue
-// itself — failed with exceed_egress_quota.
+// a request that answers "nothing" still pays for its response headers (~1 KB)
+// and, on a fresh connection, its TLS handshake (~2.8 KB). At sixteen calls a
+// minute that was roughly 23,000 requests a day of an idle worker asking
+// whether anything had changed.
+//
+// This was first blamed for the egress restriction of 16 Nov 2026, wrongly.
+// The quota is per Supabase organisation, and another project in the same
+// organisation was pulling gigabytes a day through the connection pooler; this
+// worker's share was a small fraction of it. Cutting it is still worth doing —
+// the quota is shared — but see lib/scheduling.md before blaming this app.
 //
 // None of the sweeps needs minute resolution. A digest about a broken
 // connection, a workflow paused by a lapsed plan, an operator alert about a

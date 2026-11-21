@@ -42,8 +42,8 @@ export async function GET(req: Request) {
   const startedAt = Date.now()
 
   // The drain runs on every call; the sweeps below only once per interval.
-  // Running all of them every minute is what exhausted the Supabase egress
-  // quota — see lib/worker-cadence.ts.
+  // Running all of them every minute was ~23,000 requests a day against a
+  // shared egress quota — see lib/worker-cadence.ts.
   const sweep = sweepIsDue(lastSweepAt, startedAt)
 
   // Before the drain, deliberately: a count taken afterwards would have had

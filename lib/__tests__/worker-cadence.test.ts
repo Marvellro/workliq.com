@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { sweepIsDue, SWEEP_INTERVAL_MS } from '../worker-cadence'
 
 // The worker is called every minute; its sweeps must not be. Running all of
-// them on every call is what exhausted the Supabase egress quota (16 Nov 2026).
+// them on every call was ~23,000 requests a day against a shared egress quota.
 // Skipping them when they ARE due would be worse: a digest or an operator alert
 // that silently never runs.
 
